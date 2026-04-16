@@ -4,7 +4,9 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
-LOG_PATH = Path("message_log.csv")
+from fb_automation.paths import data_path
+
+LOG_PATH = data_path("message_log.csv")
 _FIELDNAMES = ["timestamp", "first_name", "last_name", "profile_url", "status", "message_preview"]
 
 

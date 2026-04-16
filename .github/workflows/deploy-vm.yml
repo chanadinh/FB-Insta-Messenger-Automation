@@ -1,0 +1,44 @@
+# Deploys the published image to a VM over SSH (run manually after a successful build).
+# Required secrets: VM_HOST, VM_USER, VM_SSH_KEY, VM_DEPLOY_PATH (directory on the VM that contains docker-compose.yml).
+# Optional: GHCR_TOKEN — classic PAT with read:packages if the image is private (otherwise pulls are anonymous).
+
+name: Deploy to VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag to deploy (e.g. latest, main, or sha-abc1234)"
+        required: true
+        default: latest
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
+    steps:
+      - name: Image reference
+        id: ref
+        run: |
+          repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "docker_image=ghcr.io/${repo}:${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          envs: GHCR_TOKEN,GITHUB_ACTOR
+          script_stop: true
+          script: |
+            set -euo pipefail
+            if [ -n "$GHCR_TOKEN" ]; then
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+            fi
+            cd "${{ secrets.VM_DEPLOY_PATH }}"
+            export DOCKER_IMAGE="${{ steps.ref.outputs.docker_image }}"
+            docker compose pull
+            docker compose up -d

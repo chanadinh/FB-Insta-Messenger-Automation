@@ -4,12 +4,14 @@ import json
 from pathlib import Path
 from playwright.async_api import async_playwright, BrowserContext, Page
 
-COOKIES_PATH = Path("cookies.json")
+from fb_automation.paths import data_path
+
+COOKIES_PATH = data_path("cookies.json")
 FACEBOOK_URL = "https://www.facebook.com"
 FACEBOOK_LOGIN = f"{FACEBOOK_URL}/login"
 INSTAGRAM_URL = "https://www.instagram.com"
 INSTAGRAM_LOGIN = f"{INSTAGRAM_URL}/accounts/login/"
-PROFILES_PATH = Path("profiles.json")
+PROFILES_PATH = data_path("profiles.json")
 
 _pw_instance = None
 
@@ -35,7 +37,7 @@ def _slug(name: str) -> str:
 
 
 def get_profile_dir(profile_name: str) -> Path:
-    return Path(f"browser_profile_{_slug(profile_name)}")
+    return data_path(f"browser_profile_{_slug(profile_name)}")
 
 
 def load_profiles() -> dict:

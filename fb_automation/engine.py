@@ -8,7 +8,6 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Callable
 
 from fb_automation.browser import launch_browser, close_browser, CookieAuthError, get_active_profile
@@ -17,9 +16,10 @@ from fb_automation.instagram import send_ig_message, send_ig_follow_up
 from fb_automation.templates import render_message
 from fb_automation.chatgen import generate_follow_ups
 from fb_automation.logger import log_message
+from fb_automation.paths import data_path
 
-CONFIG_PATH = Path("config.json")
-CONTACTS_PATH = Path("contacts.csv")
+CONFIG_PATH = data_path("config.json")
+CONTACTS_PATH = data_path("contacts.csv")
 CONTACTS_FIELDS = ["first_name", "last_name", "fb_url", "ig_url", "custom_field"]
 
 DEFAULT_CONFIG = {

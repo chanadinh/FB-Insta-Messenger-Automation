@@ -99,3 +99,30 @@ For the same `fb_url` / `ig_url` format as the dashboard, use `server.py` and th
 | `cookies.json` | Optional one-time cookie import for a new profile |
 | `message_log.csv` | Send history |
 | `fb_automation/` | Browser, engine, Messenger/Instagram helpers, templates, logger |
+
+## Docker (VM hosting)
+
+Runtime data (`config.json`, `contacts.csv`, `profiles.json`, `browser_profile_*`, `message_log.csv`, `cookies.json`) is stored under **`APP_DATA_DIR`** (default `.` locally; **`/data`** in the container).
+
+### Build and run locally
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+Open **http://localhost:8000**. Data persists in the **`fb-automation-data`** Docker volume.
+
+### CI/CD (GitHub Actions)
+
+- **Docker image** (`.github/workflows/docker-publish.yml`): on every push to **`main`** or a version tag **`v*`**, builds and pushes to **GitHub Container Registry** (`ghcr.io/<owner>/<repo>`). Pull requests still run the build (without push).
+- **Deploy to VM** (`.github/workflows/deploy-vm.yml`): **Actions → Deploy to VM → Run workflow**. Requires repository secrets: **`VM_HOST`**, **`VM_USER`**, **`VM_SSH_KEY`**, **`VM_DEPLOY_PATH`**. On the VM, that directory must contain `docker-compose.yml` (from this repo) and Docker must be installed. The job runs `docker compose pull` and `up -d` with `DOCKER_IMAGE=ghcr.io/<owner>/<repo>:main`.
+
+On first use, make the package public or authenticate the VM (`docker login ghcr.io`) with a PAT that has `read:packages`.
+
+### VM setup (manual)
+
+1. Install Docker and Compose on the VM.
+2. Clone or copy this repo (at least `docker-compose.yml` and optionally `Dockerfile`).
+3. Create `config.json` / `contacts.csv` via the UI after first start, or seed files under the volume by exec’ing into the container. Easiest: start the stack, open the dashboard, upload/configure.
+4. Set **`DOCKER_IMAGE=ghcr.io/<your-lowercase-owner>/<repo>:main`** in the environment or in an `.env` file next to `docker-compose.yml`, then `docker compose pull && docker compose up -d`.

@@ -1,6 +1,7 @@
 {
   "profiles": [
-    "Main"
+    "Main",
+    "Sub"
   ],
   "active": "Main"
 }

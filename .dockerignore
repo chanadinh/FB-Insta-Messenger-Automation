@@ -1,0 +1,22 @@
+.git
+.github
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+venv
+.venv
+.env
+.env.*
+.DS_Store
+.vscode
+.idea
+
+# Runtime data — mount a volume at /data instead
+browser_profile*
+cookies.json
+config.json
+contacts.csv
+profiles.json
+message_log.csv
+*.log

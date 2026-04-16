@@ -1,0 +1,19 @@
+# Persistent state lives under APP_DATA_DIR (/data in the image).
+# On a VM: set DOCKER_IMAGE to your registry image, then `docker compose pull && up -d`.
+
+services:
+  app:
+    image: ${DOCKER_IMAGE:-fb-automation:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      APP_DATA_DIR: /data
+    volumes:
+      - fb-automation-data:/data
+    restart: unless-stopped
+
+volumes:
+  fb-automation-data:
