@@ -1,0 +1,38 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local environment and editor files
+.env
+.env.*
+.DS_Store
+.vscode/
+.idea/
+
+# Browser automation runtime data
+browser_profile/
+browser_profile*/
+cookies.json
+config.json
+message_log.csv
+contacts.csv
+
+# Generic logs
+*.log

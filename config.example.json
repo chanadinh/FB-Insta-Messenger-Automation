@@ -1,0 +1,13 @@
+{
+  "message_template": "Hey {{first_name}}, just wanted to reach out!",
+  "min_delay_seconds": 30,
+  "max_delay_seconds": 90,
+  "headless": true,
+  "dry_run": false,
+  "openai_api_key": "",
+  "openai_model": "gpt-5.4",
+  "follow_up_count": 3,
+  "follow_up_delay_min": 5,
+  "follow_up_delay_max": 15,
+  "chat_tone": "friendly and casual"
+}

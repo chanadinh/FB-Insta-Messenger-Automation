@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Messenger Automation Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242736;
+    --border: #2e3144;
+    --text: #e4e6ed;
+    --text2: #8b8fa3;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #eab308;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .app { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 240px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .sidebar .logo {
+    font-size: 18px;
+    font-weight: 700;
+    padding: 0 12px 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+    color: var(--accent);
+  }
+
+  .sidebar button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-size: 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+  }
+
+  .sidebar button:hover, .sidebar button.active {
+    background: var(--surface2);
+    color: var(--text);
+  }
+
+  .sidebar button.active { color: var(--accent); font-weight: 600; }
+
+  .main { flex: 1; padding: 32px; overflow-y: auto; max-height: 100vh; }
+  .main h2 { font-size: 22px; margin-bottom: 24px; font-weight: 600; }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  .card h3 { font-size: 14px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; }
+  .stat { text-align: center; }
+  .stat .value { font-size: 32px; font-weight: 700; }
+  .stat .label { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  .stat.green .value { color: var(--green); }
+  .stat.red .value { color: var(--red); }
+  .stat.yellow .value { color: var(--yellow); }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .status-badge.idle { background: #1e293b; color: var(--text2); }
+  .status-badge.running { background: #052e16; color: var(--green); }
+  .status-badge.stopping { background: #422006; color: var(--yellow); }
+  .status-badge.error { background: #450a0a; color: var(--red); }
+  .status-badge::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .status-badge.running::before { animation: pulse 1.5s infinite; }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--border); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; }
+
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border 0.15s;
+  }
+
+  .form-group input:focus, .form-group textarea:focus { border-color: var(--accent); }
+  .form-group textarea { resize: vertical; min-height: 80px; }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+  th { color: var(--text2); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  tr:hover td { background: var(--surface2); }
+
+  .profile-link { color: var(--accent); text-decoration: none; word-break: break-all; }
+  .profile-link:hover { text-decoration: underline; }
+
+  .log-viewer {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+  }
+
+  .log-line { white-space: pre-wrap; word-break: break-word; }
+  .log-line .time { color: var(--text2); margin-right: 8px; }
+  .log-line.info { color: var(--text); }
+  .log-line.ok { color: var(--green); }
+  .log-line.warn { color: var(--yellow); }
+  .log-line.error { color: var(--red); }
+
+  .cookie-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+
+  .cookie-bar.ok { background: #052e16; border: 1px solid #166534; color: var(--green); }
+  .cookie-bar.bad { background: #450a0a; border: 1px solid #991b1b; color: var(--red); }
+
+  .platform-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .platform-badge.facebook { background: #1877f2; color: #fff; }
+  .platform-badge.instagram { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); color: #fff; }
+
+  .session-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .session-row .cookie-bar { flex: 1; min-width: 200px; margin-bottom: 0; }
+
+  .empty { text-align: center; padding: 40px; color: var(--text2); font-size: 14px; }
+
+  .progress-bar {
+    width: 100%;
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 12px;
+  }
+
+  .progress-bar .fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+
+  /* ── Profile selector ──────────── */
+  .profile-selector {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .profile-selector label {
+    font-size: 13px;
+    color: var(--text2);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  .profile-selector select {
+    flex: 1;
+    max-width: 220px;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    outline: none;
+  }
+
+  .profile-selector select:focus { border-color: var(--accent); }
+
+  .new-profile-input {
+    display: none;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .new-profile-input.show { display: flex; }
+
+  .new-profile-input input {
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    width: 160px;
+  }
+
+  /* ── Contact checkboxes ────────── */
+  .contact-check { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .select-actions { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+  .select-actions span { font-size: 13px; color: var(--text2); }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar">
+    <div class="logo">Messenger Auto</div>
+    <button class="active" onclick="showPage('dashboard')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </button>
+    <button onclick="showPage('contacts')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Contacts
+    </button>
+    <button onclick="showPage('config')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m8.66-15l-5.2 3m-6.92 4l-5.2 3m17.32 0l-5.2-3m-6.92-4l-5.2-3"/></svg>
+      Settings
+    </button>
+    <button onclick="showPage('logs')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Message Log
+    </button>
+  </nav>
+
+  <main class="main">
+    <!-- ─── Dashboard ─────────────── -->
+    <div id="page-dashboard" class="page active">
+      <h2>Dashboard</h2>
+
+      <!-- Profile Selector -->
+      <div class="profile-selector">
+        <label>Sender Profile</label>
+        <select id="profile-select" onchange="switchProfile()"></select>
+        <button class="btn btn-secondary btn-sm" onclick="showNewProfile()">+ New</button>
+        <button id="btn-del-profile" class="btn btn-danger btn-sm" onclick="deleteProfile()" style="display:none;">Delete</button>
+        <div id="new-profile-row" class="new-profile-input">
+          <input id="new-profile-name" placeholder="Profile name">
+          <button class="btn btn-primary btn-sm" onclick="createProfile()">Add</button>
+          <button class="btn btn-secondary btn-sm" onclick="hideNewProfile()">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Session Status -->
+      <div class="session-row" style="margin-bottom: 20px;">
+        <div id="fb-session" class="cookie-bar ok" style="justify-content: space-between; margin-bottom: 0;">
+          <span><strong>Facebook</strong> — <span id="fb-session-text">checking...</span></span>
+          <button id="btn-setup-fb" class="btn btn-secondary btn-sm" onclick="setupLogin('facebook')">Setup</button>
+        </div>
+        <div id="ig-session" class="cookie-bar ok" style="justify-content: space-between; margin-bottom: 0;">
+          <span><strong>Instagram</strong> — <span id="ig-session-text">checking...</span></span>
+          <button id="btn-setup-ig" class="btn btn-secondary btn-sm" onclick="setupLogin('instagram')">Setup</button>
+        </div>
+      </div>
+
+      <!-- Control -->
+      <div class="card">
+        <h3>Control</h3>
+        <div class="btn-row">
+          <button id="btn-start" class="btn btn-primary" onclick="startAutomation()">Start Automation</button>
+          <button id="btn-stop" class="btn btn-danger" onclick="stopAutomation()" disabled>Stop</button>
+          <span id="status-badge" class="status-badge idle">Idle</span>
+        </div>
+        <div id="progress-wrapper" class="progress-bar" style="display:none; margin-top: 16px;">
+          <div id="progress-fill" class="fill" style="width: 0%"></div>
+        </div>
+        <div id="progress-text" style="font-size:13px; color: var(--text2); margin-top: 8px;"></div>
+      </div>
+
+      <!-- Contact Selection -->
+      <div class="card">
+        <h3>Contacts to Send</h3>
+        <div class="select-actions">
+          <button class="btn btn-secondary btn-sm" onclick="selectAll(true)">Select All</button>
+          <button class="btn btn-secondary btn-sm" onclick="selectAll(false)">Select None</button>
+          <span id="selected-count">0 selected</span>
+        </div>
+        <div id="contact-checklist"><div class="empty">Loading contacts...</div></div>
+      </div>
+
+      <!-- Statistics -->
+      <div class="card">
+        <h3>Statistics</h3>
+        <div class="stats-grid">
+          <div class="stat green"><div id="stat-sent" class="value">0</div><div class="label">Sent</div></div>
+          <div class="stat red"><div id="stat-failed" class="value">0</div><div class="label">Failed</div></div>
+          <div class="stat yellow"><div id="stat-skipped" class="value">0</div><div class="label">Skipped</div></div>
+          <div class="stat"><div id="stat-total" class="value">0</div><div class="label">Total Contacts</div></div>
+        </div>
+      </div>
+
+      <!-- Live Log -->
+      <div class="card">
+        <h3>Live Log</h3>
+        <div id="live-log" class="log-viewer"><div class="empty">No log entries yet. Start the automation to see live output.</div></div>
+      </div>
+    </div>
+
+    <!-- ─── Contacts ──────────────── -->
+    <div id="page-contacts" class="page">
+      <h2>Contacts / Receivers</h2>
+
+      <div class="card">
+        <h3>Add New Contact</h3>
+        <div class="form-row">
+          <div class="form-group"><label>First Name</label><input id="new-first" placeholder="First name"></div>
+          <div class="form-group"><label>Last Name</label><input id="new-last" placeholder="Last name"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Facebook URL</label>
+            <input id="new-fb-url" placeholder="https://www.facebook.com/messages/t/username">
+          </div>
+          <div class="form-group">
+            <label>Instagram URL</label>
+            <input id="new-ig-url" placeholder="https://www.instagram.com/direct/t/ID">
+          </div>
+        </div>
+        <div class="form-group"><label>Custom Field</label><input id="new-custom" placeholder="Optional extra data"></div>
+        <button class="btn btn-primary" onclick="addContact()">Add Contact</button>
+      </div>
+
+      <div class="card">
+        <h3>Contact List</h3>
+        <div id="contacts-table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Name</th><th>FB URL</th><th>IG URL</th><th>Custom</th><th>Actions</th></tr></thead>
+            <tbody id="contacts-body"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Settings ──────────────── -->
+    <div id="page-config" class="page">
+      <h2>Settings</h2>
+
+      <div class="card">
+        <h3>Message Template</h3>
+        <div class="form-group">
+          <label>Template (Jinja2 — use &#123;&#123;first_name&#125;&#125;, &#123;&#123;last_name&#125;&#125;, etc.)</label>
+          <textarea id="cfg-template" rows="3"></textarea>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Timing</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Min Delay (seconds)</label><input id="cfg-min-delay" type="number" min="1"></div>
+          <div class="form-group"><label>Max Delay (seconds)</label><input id="cfg-max-delay" type="number" min="1"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Follow-up Delay Min (s)</label><input id="cfg-fu-min" type="number" min="1"></div>
+          <div class="form-group"><label>Follow-up Delay Max (s)</label><input id="cfg-fu-max" type="number" min="1"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>AI Follow-ups (OpenAI)</h3>
+        <div class="form-group"><label>API Key</label><input id="cfg-api-key" type="password" placeholder="sk-..."></div>
+        <div class="form-row">
+          <div class="form-group"><label>Model</label><input id="cfg-model" placeholder="gpt-5.4"></div>
+          <div class="form-group"><label>Follow-up Count</label><input id="cfg-fu-count" type="number" min="0" max="10"></div>
+        </div>
+        <div class="form-group"><label>Chat Tone</label><input id="cfg-tone" placeholder="friendly and casual"></div>
+      </div>
+
+      <div class="card">
+        <h3>Flags</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label><input type="checkbox" id="cfg-headless"> Headless browser</label>
+          </div>
+          <div class="form-group">
+            <label><input type="checkbox" id="cfg-dry-run"> Dry run (preview only)</label>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" onclick="saveConfig()">Save Settings</button>
+    </div>
+
+    <!-- ─── Message Log ───────────── -->
+    <div id="page-logs" class="page">
+      <h2>Message Log</h2>
+      <div class="card">
+        <div id="msg-log-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Name</th><th>Status</th><th>Message</th></tr></thead>
+            <tbody id="msg-log-body"><tr><td colspan="4" class="empty">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const API = '';
+let ws = null;
+let dashboardContacts = [];
+
+// ── Navigation ─────────────────────────
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelectorAll('.sidebar button').forEach(b => b.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+
+  if (name === 'contacts') loadContacts();
+  if (name === 'config') loadConfig();
+  if (name === 'logs') loadMessageLog();
+  if (name === 'dashboard') loadDashboardContacts();
+}
+
+// ── WebSocket ──────────────────────────
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'init') {
+      updateUI(data.state);
+      data.logs.forEach(addLogLine);
+    } else if (data.type === 'log') {
+      updateUI(data.state);
+      addLogLine(data.entry);
+    }
+  };
+
+  ws.onclose = () => setTimeout(connectWS, 2000);
+}
+
+function updateUI(state) {
+  const badge = document.getElementById('status-badge');
+  badge.textContent = state.status;
+  badge.className = 'status-badge ' + state.status;
+
+  document.getElementById('stat-sent').textContent = state.sent;
+  document.getElementById('stat-failed').textContent = state.failed;
+  document.getElementById('stat-skipped').textContent = state.skipped;
+  document.getElementById('stat-total').textContent = state.total;
+
+  const isRunning = state.status === 'running';
+  document.getElementById('btn-start').disabled = isRunning;
+  document.getElementById('btn-stop').disabled = !isRunning;
+
+  const pw = document.getElementById('progress-wrapper');
+  const pf = document.getElementById('progress-fill');
+  const pt = document.getElementById('progress-text');
+
+  if (state.total > 0) {
+    pw.style.display = 'block';
+    const pct = Math.round((state.progress / state.total) * 100);
+    pf.style.width = pct + '%';
+    pt.textContent = state.current_contact
+      ? `Processing: ${state.current_contact} (${state.progress}/${state.total})`
+      : `${state.progress}/${state.total} processed`;
+  } else {
+    pw.style.display = 'none';
+    pt.textContent = '';
+  }
+}
+
+function addLogLine(entry) {
+  const viewer = document.getElementById('live-log');
+  if (viewer.querySelector('.empty')) viewer.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'log-line ' + entry.level;
+  const time = entry.time.split('T')[1] || entry.time;
+  div.innerHTML = `<span class="time">${time}</span>${escHtml(entry.message)}`;
+  viewer.appendChild(div);
+  viewer.scrollTop = viewer.scrollHeight;
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── API helpers ────────────────────────
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  return res.json();
+}
+
+// ── Profiles ───────────────────────────
+
+async function loadProfiles() {
+  const data = await api('/api/profiles');
+  const sel = document.getElementById('profile-select');
+  sel.innerHTML = data.profiles.map(p =>
+    `<option value="${escHtml(p)}" ${p === data.active ? 'selected' : ''}>${escHtml(p)}</option>`
+  ).join('');
+  document.getElementById('btn-del-profile').style.display = data.profiles.length > 1 ? 'inline-block' : 'none';
+}
+
+async function switchProfile() {
+  const name = document.getElementById('profile-select').value;
+  await api('/api/profiles/active', { method: 'PUT', body: JSON.stringify({ name }) });
+  loadStatus();
+}
+
+function showNewProfile() {
+  document.getElementById('new-profile-row').classList.add('show');
+  document.getElementById('new-profile-name').focus();
+}
+
+function hideNewProfile() {
+  document.getElementById('new-profile-row').classList.remove('show');
+  document.getElementById('new-profile-name').value = '';
+}
+
+async function createProfile() {
+  const name = document.getElementById('new-profile-name').value.trim();
+  if (!name) return;
+  const res = await api('/api/profiles', { method: 'POST', body: JSON.stringify({ name }) });
+  if (!res.ok) { alert(res.error); return; }
+  hideNewProfile();
+  await loadProfiles();
+  document.getElementById('profile-select').value = name;
+  await switchProfile();
+}
+
+async function deleteProfile() {
+  const name = document.getElementById('profile-select').value;
+  if (!confirm(`Delete profile "${name}"?`)) return;
+  await api(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  await loadProfiles();
+  loadStatus();
+}
+
+// ── Status ─────────────────────────────
+
+async function loadStatus() {
+  const data = await api('/api/status');
+  updateUI(data);
+
+  const s = data.session || {};
+
+  const fbBar = document.getElementById('fb-session');
+  const fbText = document.getElementById('fb-session-text');
+  fbBar.className = s.fb ? 'cookie-bar ok' : 'cookie-bar bad';
+  fbText.textContent = s.fb ? 'Session ready' : 'Not logged in';
+  document.getElementById('btn-setup-fb').textContent = s.fb ? 'Re-login' : 'Setup';
+
+  const igBar = document.getElementById('ig-session');
+  const igText = document.getElementById('ig-session-text');
+  igBar.className = s.ig ? 'cookie-bar ok' : 'cookie-bar bad';
+  igText.textContent = s.ig ? 'Session ready' : 'Not logged in';
+  document.getElementById('btn-setup-ig').textContent = s.ig ? 'Re-login' : 'Setup';
+}
+
+// ── Automation control ─────────────────
+
+async function startAutomation() {
+  const checkboxes = document.querySelectorAll('.contact-check:checked');
+  const indices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.idx));
+
+  if (indices.length === 0) {
+    alert('Select at least one contact');
+    return;
+  }
+
+  const res = await api('/api/start', {
+    method: 'POST',
+    body: JSON.stringify({ contact_indices: indices }),
+  });
+  if (!res.ok) alert(res.error || 'Failed to start');
+}
+
+async function stopAutomation() {
+  await api('/api/stop', { method: 'POST' });
+}
+
+async function setupLogin(platform) {
+  const isFb = platform === 'facebook';
+  const btn = document.getElementById(isFb ? 'btn-setup-fb' : 'btn-setup-ig');
+  const text = document.getElementById(isFb ? 'fb-session-text' : 'ig-session-text');
+  const label = isFb ? 'Facebook' : 'Instagram';
+
+  btn.disabled = true;
+  btn.textContent = 'Opening...';
+  text.textContent = `A browser will open — log in to ${label}. It will close automatically.`;
+
+  try {
+    const res = await api('/api/setup-login', {
+      method: 'POST',
+      body: JSON.stringify({ platform }),
+    });
+    if (res.ok) {
+      text.textContent = 'Session ready';
+      document.getElementById(isFb ? 'fb-session' : 'ig-session').className = 'cookie-bar ok';
+      btn.textContent = 'Re-login';
+    } else {
+      text.textContent = res.error || 'Setup failed';
+    }
+  } catch (e) {
+    text.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Dashboard contact checklist ────────
+
+async function loadDashboardContacts() {
+  dashboardContacts = await api('/api/contacts');
+  renderChecklist();
+}
+
+function renderChecklist() {
+  const wrap = document.getElementById('contact-checklist');
+  if (!dashboardContacts.length) {
+    wrap.innerHTML = '<div class="empty">No contacts. Add some in the Contacts tab.</div>';
+    updateSelectedCount();
+    return;
+  }
+
+  wrap.innerHTML = '<table style="width:100%"><tbody>' + dashboardContacts.map((c, i) => {
+    const fb = c.fb_url ? '<span class="platform-badge facebook">FB</span>' : '';
+    const ig = c.ig_url ? '<span class="platform-badge instagram">IG</span>' : '';
+    return `
+      <tr>
+        <td style="width:40px;"><input type="checkbox" class="contact-check" data-idx="${i}" checked onchange="updateSelectedCount()"></td>
+        <td>${escHtml(c.first_name || '')} ${escHtml(c.last_name || '')}</td>
+        <td>${fb} ${ig}</td>
+      </tr>
+    `;
+  }).join('') + '</tbody></table>';
+  updateSelectedCount();
+}
+
+function selectAll(checked) {
+  document.querySelectorAll('.contact-check').forEach(cb => cb.checked = checked);
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const total = document.querySelectorAll('.contact-check').length;
+  const selected = document.querySelectorAll('.contact-check:checked').length;
+  document.getElementById('selected-count').textContent = `${selected}/${total} selected`;
+}
+
+// ── Contacts page ──────────────────────
+
+async function loadContacts() {
+  const contacts = await api('/api/contacts');
+  const tbody = document.getElementById('contacts-body');
+
+  if (!contacts.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No contacts yet. Add one above.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = contacts.map((c, i) => {
+    const fb = c.fb_url || '';
+    const ig = c.ig_url || '';
+    const fbCell = fb
+      ? `<a class="profile-link" href="${escHtml(fb)}" target="_blank"><span class="platform-badge facebook">FB</span></a>`
+      : '<span style="color:var(--text2)">-</span>';
+    const igCell = ig
+      ? `<a class="profile-link" href="${escHtml(ig)}" target="_blank"><span class="platform-badge instagram">IG</span></a>`
+      : '<span style="color:var(--text2)">-</span>';
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${escHtml(c.first_name || '')} ${escHtml(c.last_name || '')}</td>
+        <td>${fbCell}</td>
+        <td>${igCell}</td>
+        <td>${escHtml(c.custom_field || '')}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="deleteContact(${i})">Remove</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function addContact() {
+  const fbUrl = document.getElementById('new-fb-url').value.trim();
+  const igUrl = document.getElementById('new-ig-url').value.trim();
+  if (!fbUrl && !igUrl) { alert('At least one URL (FB or IG) is required'); return; }
+
+  const contact = {
+    first_name: document.getElementById('new-first').value.trim(),
+    last_name: document.getElementById('new-last').value.trim(),
+    fb_url: fbUrl,
+    ig_url: igUrl,
+    custom_field: document.getElementById('new-custom').value.trim(),
+  };
+
+  await api('/api/contacts', { method: 'POST', body: JSON.stringify(contact) });
+  document.getElementById('new-first').value = '';
+  document.getElementById('new-last').value = '';
+  document.getElementById('new-fb-url').value = '';
+  document.getElementById('new-ig-url').value = '';
+  document.getElementById('new-custom').value = '';
+  loadContacts();
+}
+
+async function deleteContact(idx) {
+  if (!confirm('Remove this contact?')) return;
+  await api(`/api/contacts/${idx}`, { method: 'DELETE' });
+  loadContacts();
+}
+
+// ── Config ─────────────────────────────
+
+async function loadConfig() {
+  const c = await api('/api/config');
+  document.getElementById('cfg-template').value = c.message_template || '';
+  document.getElementById('cfg-min-delay').value = c.min_delay_seconds || 30;
+  document.getElementById('cfg-max-delay').value = c.max_delay_seconds || 90;
+  document.getElementById('cfg-fu-min').value = c.follow_up_delay_min || 5;
+  document.getElementById('cfg-fu-max').value = c.follow_up_delay_max || 15;
+  document.getElementById('cfg-api-key').value = '';
+  document.getElementById('cfg-api-key').placeholder = c.openai_api_key || 'sk-...';
+  document.getElementById('cfg-model').value = c.openai_model || '';
+  document.getElementById('cfg-fu-count').value = c.follow_up_count || 3;
+  document.getElementById('cfg-tone').value = c.chat_tone || '';
+  document.getElementById('cfg-headless').checked = !!c.headless;
+  document.getElementById('cfg-dry-run').checked = !!c.dry_run;
+}
+
+async function saveConfig() {
+  const update = {
+    message_template: document.getElementById('cfg-template').value,
+    min_delay_seconds: parseInt(document.getElementById('cfg-min-delay').value) || 30,
+    max_delay_seconds: parseInt(document.getElementById('cfg-max-delay').value) || 90,
+    follow_up_delay_min: parseInt(document.getElementById('cfg-fu-min').value) || 5,
+    follow_up_delay_max: parseInt(document.getElementById('cfg-fu-max').value) || 15,
+    openai_model: document.getElementById('cfg-model').value,
+    follow_up_count: parseInt(document.getElementById('cfg-fu-count').value) || 3,
+    chat_tone: document.getElementById('cfg-tone').value,
+    headless: document.getElementById('cfg-headless').checked,
+    dry_run: document.getElementById('cfg-dry-run').checked,
+  };
+
+  const apiKey = document.getElementById('cfg-api-key').value.trim();
+  if (apiKey) update.openai_api_key = apiKey;
+
+  await api('/api/config', { method: 'PUT', body: JSON.stringify(update) });
+  alert('Settings saved!');
+}
+
+// ── Message Log ────────────────────────
+
+async function loadMessageLog() {
+  const logs = await api('/api/message-log');
+  const tbody = document.getElementById('msg-log-body');
+
+  if (!logs.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No messages sent yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = logs.reverse().map(r => {
+    const statusClass = r.status === 'sent' ? 'green' : r.status === 'failed' ? 'red' : 'yellow';
+    return `
+      <tr>
+        <td style="white-space:nowrap; font-size:13px;">${escHtml(r.timestamp || '')}</td>
+        <td>${escHtml(r.first_name || '')} ${escHtml(r.last_name || '')}</td>
+        <td><span style="color: var(--${statusClass}); font-weight: 600;">${escHtml(r.status || '')}</span></td>
+        <td style="font-size:13px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(r.message_preview || '')}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ── Init ───────────────────────────────
+
+loadProfiles();
+loadStatus();
+loadDashboardContacts();
+connectWS();
+</script>
+</body>
+</html>
