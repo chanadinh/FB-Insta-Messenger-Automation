@@ -66,6 +66,10 @@ class AutomationEngine:
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._log_callbacks: list[LogCallback] = []
+        self._busy_lock = asyncio.Lock()
+
+    def is_busy(self) -> bool:
+        return self._busy_lock.locked()
 
     def on_log(self, callback: LogCallback) -> None:
         self._log_callbacks.append(callback)
@@ -121,7 +125,7 @@ class AutomationEngine:
     # ── Control ────────────────────────────────────────────────
 
     async def start(self, contacts: list[dict[str, str]] | None = None) -> None:
-        if self.state.status == Status.RUNNING:
+        if self.is_busy():
             raise RuntimeError("Automation is already running")
 
         self._stop_event.clear()
@@ -137,6 +141,13 @@ class AutomationEngine:
 
         self._task = asyncio.create_task(self._run(contacts))
 
+    async def _run(self, contacts: list[dict[str, str]]) -> None:
+        await self._busy_lock.acquire()
+        try:
+            await self._run_locked(contacts)
+        finally:
+            self._busy_lock.release()
+
     async def stop(self) -> None:
         if self.state.status != Status.RUNNING:
             return
@@ -147,6 +158,98 @@ class AutomationEngine:
                 await asyncio.wait_for(self._task, timeout=30)
             except asyncio.TimeoutError:
                 self._task.cancel()
+
+    async def send_to_contact(
+        self,
+        contact: dict[str, str],
+        message: str,
+        platforms: list[str],
+        *,
+        profile_name: str | None = None,
+        headless: bool | None = None,
+        dry_run: bool | None = None,
+        follow_ups: bool = False,
+    ) -> dict[str, bool]:
+        """Send a one-off message on selected platforms. Returns {platform: success}."""
+        if self.is_busy():
+            raise RuntimeError("Browser automation is busy")
+
+        config = self.load_config()
+        if headless is None:
+            headless = config.get("headless", True)
+        if dry_run is None:
+            dry_run = config.get("dry_run", False)
+
+        fb_url = contact.get("fb_url", "").strip()
+        ig_url = contact.get("ig_url", "").strip()
+        name = f"{contact.get('first_name', '')} {contact.get('last_name', '')}".strip()
+        profile = profile_name or get_active_profile()
+
+        want_fb = "facebook" in platforms and bool(fb_url)
+        want_ig = "instagram" in platforms and bool(ig_url)
+        if not want_fb and not want_ig:
+            self._emit("warn", f"No URLs for selected platforms ({name})")
+            return {}
+
+        api_key = config.get("openai_api_key", "")
+        openai_model = config.get("openai_model", "gpt-5.4")
+        follow_up_count = config.get("follow_up_count", 3) if follow_ups else 0
+        fu_delay_min = config.get("follow_up_delay_min", 5)
+        fu_delay_max = config.get("follow_up_delay_max", 15)
+        chat_tone = config.get("chat_tone", "friendly and casual")
+
+        results: dict[str, bool] = {}
+
+        async with self._busy_lock:
+            self._stop_event.clear()
+            prev_status = self.state.status
+            self.state.status = Status.RUNNING
+            context = None
+            try:
+                if dry_run:
+                    if want_fb:
+                        self._emit("info", f"[DRY RUN] [FB] Would send to {name}: \"{message}\"")
+                        log_message({**contact, "profile_url": fb_url}, "dry_run", message)
+                        results["facebook"] = True
+                    if want_ig:
+                        self._emit("info", f"[DRY RUN] [IG] Would send to {name}: \"{message}\"")
+                        log_message({**contact, "profile_url": ig_url}, "dry_run", message)
+                        results["instagram"] = True
+                    return results
+
+                self._emit("info", f"Sending reminder to {name}...")
+                context, _ = await launch_browser(
+                    headless=headless,
+                    need_fb=want_fb,
+                    need_ig=want_ig,
+                    profile_name=profile,
+                )
+
+                tasks = []
+                platforms_order: list[str] = []
+                if want_fb:
+                    platforms_order.append("facebook")
+                    tasks.append(self._send_on_platform(
+                        context, contact, name, fb_url, message,
+                        "facebook", api_key, openai_model,
+                        follow_up_count, fu_delay_min, fu_delay_max, chat_tone,
+                    ))
+                if want_ig:
+                    platforms_order.append("instagram")
+                    tasks.append(self._send_on_platform(
+                        context, contact, name, ig_url, message,
+                        "instagram", api_key, openai_model,
+                        follow_up_count, fu_delay_min, fu_delay_max, chat_tone,
+                    ))
+                outcomes = await asyncio.gather(*tasks)
+                for platform, ok in zip(platforms_order, outcomes):
+                    results[platform] = ok
+            finally:
+                if context:
+                    await close_browser(context)
+                self.state.status = prev_status if prev_status != Status.RUNNING else Status.IDLE
+
+        return results
 
     def get_state(self) -> dict:
         return {
@@ -162,7 +265,7 @@ class AutomationEngine:
 
     # ── Main loop (parallel) ─────────────────────────────────────
 
-    async def _run(self, contacts: list[dict[str, str]]) -> None:
+    async def _run_locked(self, contacts: list[dict[str, str]]) -> None:
         config = self.load_config()
         template = config["message_template"]
         dry_run = config["dry_run"]
@@ -294,10 +397,11 @@ class AutomationEngine:
         fu_delay_min: int,
         fu_delay_max: int,
         chat_tone: str,
-    ) -> None:
+    ) -> bool:
         """Send message + follow-ups on a single platform in its own tab."""
         tag = "IG" if platform == "instagram" else "FB"
         page = await context.new_page()
+        success = False
 
         try:
             self._emit("info", f"[{tag}] Sending to {name}...")
@@ -346,3 +450,4 @@ class AutomationEngine:
             self._emit("error", f"[{tag}] Error with {name}: {e}")
         finally:
             await page.close()
+        return success
