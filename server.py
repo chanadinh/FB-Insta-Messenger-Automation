@@ -6,13 +6,14 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fb_automation.engine import AutomationEngine, Status
 from fb_automation.browser import (
@@ -20,11 +21,23 @@ from fb_automation.browser import (
     load_profiles, save_profiles, get_active_profile,
 )
 from fb_automation.logger import LOG_PATH
+from fb_automation.scheduler import JobScheduler
 
-app = FastAPI(title="FB Automation Dashboard")
 engine = AutomationEngine()
+scheduler = JobScheduler(engine)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.on_event(_on_schedule_event)
+    await scheduler.start()
+    yield
+    await scheduler.stop()
+
+
+app = FastAPI(title="FB Automation Dashboard", lifespan=lifespan)
 
 
 # ── WebSocket manager ─────────────────────────────────────────
@@ -66,6 +79,14 @@ def _on_log(entry: dict) -> None:
 engine.on_log(_on_log)
 
 
+def _on_schedule_event(entry: dict) -> None:
+    """Push scheduler log lines to WebSocket clients."""
+    asyncio.ensure_future(ws_manager.broadcast({
+        "type": "schedule_log",
+        "entry": entry,
+    }))
+
+
 # ── Pydantic models ───────────────────────────────────────────
 
 class ContactModel(BaseModel):
@@ -100,6 +121,38 @@ class ProfileSetActive(BaseModel):
 
 class StartRequest(BaseModel):
     contact_indices: list[int] | None = None
+
+
+class ScheduleCreate(BaseModel):
+    name: str
+    enabled: bool = True
+    schedule_type: str = "daily"  # daily | interval
+    hour: int = Field(default=9, ge=0, le=23)
+    minute: int = Field(default=0, ge=0, le=59)
+    interval_hours: int = Field(default=4, ge=1, le=168)
+    contact_index: int = Field(ge=0)
+    platforms: list[str] = Field(default_factory=lambda: ["instagram"])
+    idea: str
+    use_ai: bool = True
+    profile_name: str | None = None
+
+
+class ScheduleUpdate(BaseModel):
+    name: str | None = None
+    enabled: bool | None = None
+    schedule_type: str | None = None
+    hour: int | None = Field(default=None, ge=0, le=23)
+    minute: int | None = Field(default=None, ge=0, le=59)
+    interval_hours: int | None = Field(default=None, ge=1, le=168)
+    contact_index: int | None = Field(default=None, ge=0)
+    platforms: list[str] | None = None
+    idea: str | None = None
+    use_ai: bool | None = None
+    profile_name: str | None = None
+
+
+class ScheduleToggle(BaseModel):
+    enabled: bool
 
 
 # ── API routes ─────────────────────────────────────────────────
@@ -280,6 +333,62 @@ async def get_message_log():
         return []
     with LOG_PATH.open(newline="") as f:
         return list(csv.DictReader(f))
+
+
+# ── Scheduled reminders ───────────────────────────────────────
+
+@app.get("/api/schedules")
+async def list_schedules():
+    return scheduler.list_jobs()
+
+
+@app.post("/api/schedules")
+async def create_schedule(body: ScheduleCreate):
+    try:
+        job = scheduler.create_job(body.model_dump())
+        return {"ok": True, "job": job}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.put("/api/schedules/{job_id}")
+async def update_schedule(job_id: str, body: ScheduleUpdate):
+    try:
+        job = scheduler.update_job(job_id, body.model_dump(exclude_none=True))
+        return {"ok": True, "job": job}
+    except KeyError as e:
+        return {"ok": False, "error": str(e)}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.delete("/api/schedules/{job_id}")
+async def delete_schedule(job_id: str):
+    try:
+        scheduler.delete_job(job_id)
+        return {"ok": True}
+    except KeyError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/schedules/{job_id}/toggle")
+async def toggle_schedule(job_id: str, body: ScheduleToggle):
+    try:
+        job = scheduler.toggle_job(job_id, body.enabled)
+        return {"ok": True, "job": job}
+    except KeyError as e:
+        return {"ok": False, "error": str(e)}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/schedules/{job_id}/run")
+async def run_schedule_now(job_id: str):
+    try:
+        result = await scheduler.run_job_now(job_id)
+        return {"ok": result.get("ok", False), **result}
+    except KeyError as e:
+        return {"ok": False, "error": str(e)}
 
 
 # ── WebSocket ──────────────────────────────────────────────────
