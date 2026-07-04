@@ -299,25 +299,39 @@
   .contact-check { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
   .select-actions { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
   .select-actions span { font-size: 13px; color: var(--text2); }
+
+  .schedule-type-fields { display: none; }
+  .schedule-type-fields.show { display: block; }
+
+  .platform-checks { display: flex; gap: 16px; flex-wrap: wrap; }
+  .platform-checks label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; }
+
+  .job-row-disabled td { opacity: 0.55; }
+  .job-idea { max-width: 280px; font-size: 13px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .next-run { font-size: 12px; color: var(--text2); white-space: nowrap; }
 </style>
 </head>
 <body>
 <div class="app">
   <nav class="sidebar">
     <div class="logo">Messenger Auto</div>
-    <button class="active" onclick="showPage('dashboard')">
+    <button class="active" data-page="dashboard" onclick="showPage('dashboard', this)">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
       Dashboard
     </button>
-    <button onclick="showPage('contacts')">
+    <button data-page="contacts" onclick="showPage('contacts', this)">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Contacts
     </button>
-    <button onclick="showPage('config')">
+    <button data-page="schedules" onclick="showPage('schedules', this)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+      Reminders
+    </button>
+    <button data-page="config" onclick="showPage('config', this)">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m8.66-15l-5.2 3m-6.92 4l-5.2 3m17.32 0l-5.2-3m-6.92-4l-5.2-3"/></svg>
       Settings
     </button>
-    <button onclick="showPage('logs')">
+    <button data-page="logs" onclick="showPage('logs', this)">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       Message Log
     </button>
@@ -480,6 +494,99 @@
       <button class="btn btn-primary" onclick="saveConfig()">Save Settings</button>
     </div>
 
+    <!-- ─── Schedules / Reminders ── -->
+    <div id="page-schedules" class="page">
+      <h2>Scheduled Reminders</h2>
+      <p style="color: var(--text2); font-size: 14px; margin: -12px 0 24px;">
+        Send recurring messages from your own ideas — e.g. remind someone to do something on Instagram or Facebook.
+      </p>
+
+      <div class="card">
+        <h3 id="schedule-form-title">New Reminder</h3>
+        <input type="hidden" id="sched-edit-id" value="">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Reminder name</label>
+            <input id="sched-name" placeholder="Morning check-in">
+          </div>
+          <div class="form-group">
+            <label>Send to</label>
+            <select id="sched-contact"></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Schedule</label>
+            <select id="sched-type" onchange="toggleScheduleFields()">
+              <option value="daily">Every day at…</option>
+              <option value="interval">Every N hours</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Browser profile (optional)</label>
+            <select id="sched-profile"><option value="">Active profile</option></select>
+          </div>
+        </div>
+        <div id="sched-daily-fields" class="schedule-type-fields show">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Hour (0–23)</label>
+              <input id="sched-hour" type="number" min="0" max="23" value="9">
+            </div>
+            <div class="form-group">
+              <label>Minute</label>
+              <input id="sched-minute" type="number" min="0" max="59" value="0">
+            </div>
+          </div>
+        </div>
+        <div id="sched-interval-fields" class="schedule-type-fields">
+          <div class="form-group">
+            <label>Every how many hours?</label>
+            <input id="sched-interval" type="number" min="1" max="168" value="4">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Platforms</label>
+          <div class="platform-checks">
+            <label><input type="checkbox" id="sched-platform-ig" checked> Instagram</label>
+            <label><input type="checkbox" id="sched-platform-fb"> Facebook</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Your idea (what to remind them about)</label>
+          <textarea id="sched-idea" rows="3" placeholder="Remind her to drink water and take a break from studying"></textarea>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="sched-use-ai" checked> Use AI to turn idea into a natural message (needs OpenAI key in Settings)</label>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveSchedule()">Save Reminder</button>
+          <button id="sched-cancel-btn" class="btn btn-secondary" onclick="resetScheduleForm()" style="display:none;">Cancel edit</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Active reminders</h3>
+        <div id="schedules-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>On</th>
+                <th>Name</th>
+                <th>When</th>
+                <th>Contact</th>
+                <th>Platforms</th>
+                <th>Idea</th>
+                <th>Next run</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="schedules-body"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- ─── Message Log ───────────── -->
     <div id="page-logs" class="page">
       <h2>Message Log</h2>
@@ -502,16 +609,17 @@ let dashboardContacts = [];
 
 // ── Navigation ─────────────────────────
 
-function showPage(name) {
+function showPage(name, btn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   document.querySelectorAll('.sidebar button').forEach(b => b.classList.remove('active'));
-  event.currentTarget.classList.add('active');
+  if (btn) btn.classList.add('active');
 
   if (name === 'contacts') loadContacts();
   if (name === 'config') loadConfig();
   if (name === 'logs') loadMessageLog();
   if (name === 'dashboard') loadDashboardContacts();
+  if (name === 'schedules') loadSchedulesPage();
 }
 
 // ── WebSocket ──────────────────────────
@@ -528,6 +636,11 @@ function connectWS() {
     } else if (data.type === 'log') {
       updateUI(data.state);
       addLogLine(data.entry);
+    } else if (data.type === 'schedule_log') {
+      addLogLine(data.entry);
+      if (document.getElementById('page-schedules').classList.contains('active')) {
+        loadSchedules();
+      }
     }
   };
 
@@ -868,6 +981,204 @@ async function loadMessageLog() {
       </tr>
     `;
   }).join('');
+}
+
+// ── Scheduled reminders ────────────────
+
+let scheduleContacts = [];
+let scheduleJobs = [];
+
+function toggleScheduleFields() {
+  const type = document.getElementById('sched-type').value;
+  document.getElementById('sched-daily-fields').classList.toggle('show', type === 'daily');
+  document.getElementById('sched-interval-fields').classList.toggle('show', type === 'interval');
+}
+
+function formatScheduleWhen(job) {
+  if (job.schedule_type === 'interval') {
+    return `Every ${job.interval_hours}h`;
+  }
+  const h = String(job.hour).padStart(2, '0');
+  const m = String(job.minute).padStart(2, '0');
+  return `Daily ${h}:${m}`;
+}
+
+function formatNextRun(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function contactLabel(c, i) {
+  const name = `${c.first_name || ''} ${c.last_name || ''}`.trim() || `Contact #${i + 1}`;
+  const tags = [];
+  if (c.fb_url) tags.push('FB');
+  if (c.ig_url) tags.push('IG');
+  return tags.length ? `${name} (${tags.join(', ')})` : name;
+}
+
+async function loadSchedulesPage() {
+  scheduleContacts = await api('/api/contacts');
+  const profileData = await api('/api/profiles');
+
+  const contactSel = document.getElementById('sched-contact');
+  if (!scheduleContacts.length) {
+    contactSel.innerHTML = '<option value="">Add a contact first</option>';
+  } else {
+    contactSel.innerHTML = scheduleContacts.map((c, i) =>
+      `<option value="${i}">${escHtml(contactLabel(c, i))}</option>`
+    ).join('');
+  }
+
+  const profileSel = document.getElementById('sched-profile');
+  profileSel.innerHTML = '<option value="">Active profile</option>' +
+    profileData.profiles.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
+
+  await loadSchedules();
+}
+
+async function loadSchedules() {
+  scheduleJobs = await api('/api/schedules');
+  renderSchedules();
+}
+
+function renderSchedules() {
+  const tbody = document.getElementById('schedules-body');
+  if (!scheduleJobs.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">No reminders yet. Create one above.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = scheduleJobs.map(job => {
+    const c = scheduleContacts[job.contact_index];
+    const contactName = c ? contactLabel(c, job.contact_index) : `#${job.contact_index}`;
+    const platforms = (job.platforms || []).map(p =>
+      `<span class="platform-badge ${p === 'facebook' ? 'facebook' : 'instagram'}">${p === 'facebook' ? 'FB' : 'IG'}</span>`
+    ).join(' ');
+    const rowClass = job.enabled ? '' : 'job-row-disabled';
+    return `
+      <tr class="${rowClass}">
+        <td><input type="checkbox" ${job.enabled ? 'checked' : ''} onchange="toggleScheduleEnabled('${job.id}', this.checked)" title="Enable/disable"></td>
+        <td><strong>${escHtml(job.name)}</strong></td>
+        <td>${escHtml(formatScheduleWhen(job))}</td>
+        <td>${escHtml(contactName)}</td>
+        <td>${platforms}</td>
+        <td class="job-idea" title="${escHtml(job.idea)}">${escHtml(job.idea)}</td>
+        <td class="next-run">${escHtml(formatNextRun(job.next_run))}</td>
+        <td>
+          <div class="btn-row">
+            <button class="btn btn-secondary btn-sm" onclick="runScheduleNow('${job.id}')">Run now</button>
+            <button class="btn btn-secondary btn-sm" onclick="editSchedule('${job.id}')">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteSchedule('${job.id}')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function resetScheduleForm() {
+  document.getElementById('sched-edit-id').value = '';
+  document.getElementById('schedule-form-title').textContent = 'New Reminder';
+  document.getElementById('sched-cancel-btn').style.display = 'none';
+  document.getElementById('sched-name').value = '';
+  document.getElementById('sched-type').value = 'daily';
+  document.getElementById('sched-hour').value = '9';
+  document.getElementById('sched-minute').value = '0';
+  document.getElementById('sched-interval').value = '4';
+  document.getElementById('sched-platform-ig').checked = true;
+  document.getElementById('sched-platform-fb').checked = false;
+  document.getElementById('sched-idea').value = '';
+  document.getElementById('sched-use-ai').checked = true;
+  document.getElementById('sched-profile').value = '';
+  if (scheduleContacts.length) document.getElementById('sched-contact').value = '0';
+  toggleScheduleFields();
+}
+
+function collectSchedulePayload() {
+  const platforms = [];
+  if (document.getElementById('sched-platform-fb').checked) platforms.push('facebook');
+  if (document.getElementById('sched-platform-ig').checked) platforms.push('instagram');
+
+  const profile = document.getElementById('sched-profile').value.trim();
+  const payload = {
+    name: document.getElementById('sched-name').value.trim(),
+    schedule_type: document.getElementById('sched-type').value,
+    hour: parseInt(document.getElementById('sched-hour').value, 10) || 9,
+    minute: parseInt(document.getElementById('sched-minute').value, 10) || 0,
+    interval_hours: parseInt(document.getElementById('sched-interval').value, 10) || 4,
+    contact_index: parseInt(document.getElementById('sched-contact').value, 10),
+    platforms,
+    idea: document.getElementById('sched-idea').value.trim(),
+    use_ai: document.getElementById('sched-use-ai').checked,
+    profile_name: profile || null,
+  };
+  return payload;
+}
+
+async function saveSchedule() {
+  const payload = collectSchedulePayload();
+  if (!payload.name) { alert('Name is required'); return; }
+  if (!payload.platforms.length) { alert('Select at least one platform'); return; }
+  if (!payload.idea) { alert('Enter your reminder idea'); return; }
+  if (Number.isNaN(payload.contact_index) || payload.contact_index < 0) {
+    alert('Select a contact');
+    return;
+  }
+
+  const editId = document.getElementById('sched-edit-id').value;
+  const res = editId
+    ? await api(`/api/schedules/${editId}`, { method: 'PUT', body: JSON.stringify(payload) })
+    : await api('/api/schedules', { method: 'POST', body: JSON.stringify({ ...payload, enabled: true }) });
+
+  if (!res.ok) { alert(res.error || 'Failed to save'); return; }
+  resetScheduleForm();
+  await loadSchedules();
+}
+
+function editSchedule(id) {
+  const job = scheduleJobs.find(j => j.id === id);
+  if (!job) return;
+  document.getElementById('sched-edit-id').value = job.id;
+  document.getElementById('schedule-form-title').textContent = 'Edit Reminder';
+  document.getElementById('sched-cancel-btn').style.display = 'inline-block';
+  document.getElementById('sched-name').value = job.name;
+  document.getElementById('sched-type').value = job.schedule_type;
+  document.getElementById('sched-hour').value = job.hour;
+  document.getElementById('sched-minute').value = job.minute;
+  document.getElementById('sched-interval').value = job.interval_hours;
+  document.getElementById('sched-contact').value = job.contact_index;
+  document.getElementById('sched-platform-fb').checked = (job.platforms || []).includes('facebook');
+  document.getElementById('sched-platform-ig').checked = (job.platforms || []).includes('instagram');
+  document.getElementById('sched-idea').value = job.idea;
+  document.getElementById('sched-use-ai').checked = !!job.use_ai;
+  document.getElementById('sched-profile').value = job.profile_name || '';
+  toggleScheduleFields();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function deleteSchedule(id) {
+  const job = scheduleJobs.find(j => j.id === id);
+  if (!job || !confirm(`Delete reminder "${job.name}"?`)) return;
+  const res = await api(`/api/schedules/${id}`, { method: 'DELETE' });
+  if (!res.ok) { alert(res.error); return; }
+  await loadSchedules();
+}
+
+async function toggleScheduleEnabled(id, enabled) {
+  const res = await api(`/api/schedules/${id}/toggle`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) { alert(res.error); await loadSchedules(); return; }
+  await loadSchedules();
+}
+
+async function runScheduleNow(id) {
+  const res = await api(`/api/schedules/${id}/run`, { method: 'POST' });
+  if (!res.ok) alert(res.error || res.message || 'Run failed');
+  await loadSchedules();
 }
 
 // ── Init ───────────────────────────────
