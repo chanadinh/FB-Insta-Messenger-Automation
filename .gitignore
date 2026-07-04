@@ -33,6 +33,8 @@ cookies.json
 config.json
 message_log.csv
 contacts.csv
+schedules.json
+profiles.json
 
 # Generic logs
 *.log

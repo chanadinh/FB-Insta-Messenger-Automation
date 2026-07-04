@@ -85,6 +85,17 @@ For the same `fb_url` / `ig_url` format as the dashboard, use `server.py` and th
 4. If an OpenAI key is configured, generates follow-ups and sends them with delays between follow-ups (**follow_up_delay_min** / **follow_up_delay_max**).
 5. Logs attempts to **`message_log.csv`**; the dashboard streams logs over **`/ws`**.
 
+### 6. Scheduled reminders
+
+Open the **Reminders** tab in the dashboard (or use **`/api/schedules`**). Create a job with:
+
+- **Contact** — pick someone from `contacts.csv` (they need an `fb_url` and/or `ig_url` for the platforms you choose).
+- **Schedule** — **every day at a set time** (local server time), or **every N hours**.
+- **Your idea** — e.g. *“Remind her to drink water and take a break”*. With **Use AI** on (and an OpenAI key in Settings), the app turns that into a natural DM; otherwise the idea is sent as a Jinja2 template (`{{first_name}}`, etc.).
+- **Platforms** — Facebook, Instagram, or both.
+
+Jobs run in the background while `server.py` is up. Use **Run now** to test. Scheduled sends appear in the live log and `message_log.csv`.
+
 ## Files
 
 | Path | Purpose |
@@ -98,7 +109,8 @@ For the same `fb_url` / `ig_url` format as the dashboard, use `server.py` and th
 | `browser_profile_<name>/` | Per-profile Chromium user data (sessions) |
 | `cookies.json` | Optional one-time cookie import for a new profile |
 | `message_log.csv` | Send history |
-| `fb_automation/` | Browser, engine, Messenger/Instagram helpers, templates, logger |
+| `schedules.json` | Scheduled reminder jobs (daily or every N hours) |
+| `fb_automation/` | Browser, engine, Messenger/Instagram helpers, templates, logger, scheduler |
 
 ## Docker (VM hosting)
 
