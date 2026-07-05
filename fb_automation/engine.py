@@ -406,8 +406,10 @@ class AutomationEngine:
         try:
             self._emit("info", f"[{tag}] Sending to {name}...")
 
+            emit = lambda level, msg: self._emit(level, msg)
+
             if platform == "instagram":
-                success = await send_ig_message(page, profile_url, message)
+                success = await send_ig_message(page, profile_url, message, emit=emit)
             else:
                 success = await send_message(page, profile_url, message)
 
@@ -435,7 +437,7 @@ class AutomationEngine:
                         await delay_between_messages(fu_delay_min, fu_delay_max)
                         self._emit("info", f"[{tag}] Follow-up {j}/{len(follow_ups)} to {name}")
                         if platform == "instagram":
-                            fu_ok = await send_ig_follow_up(page, fu)
+                            fu_ok = await send_ig_follow_up(page, fu, emit=emit)
                         else:
                             fu_ok = await send_follow_up(page, fu)
                         status = "sent" if fu_ok else "failed"

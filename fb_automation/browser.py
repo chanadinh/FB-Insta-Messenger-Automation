@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from playwright.async_api import async_playwright, BrowserContext, Page
 
@@ -18,6 +19,7 @@ _pw_instance = None
 _BROWSER_ARGS = [
     "--disable-blink-features=AutomationControlled",
     "--no-sandbox",
+    "--disable-dev-shm-usage",
 ]
 _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -107,7 +109,28 @@ def _clear_profile_locks(profile_dir: Path) -> None:
             pass
 
 
-async def _open_persistent_context(headless: bool, profile_name: str | None = None) -> BrowserContext:
+def _has_display() -> bool:
+    if os.name == "nt":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _resolve_headless(headless: bool, *, for_setup: bool = False) -> bool:
+    """Use headless mode when requested, or when Linux has no X11/Wayland display."""
+    if headless:
+        return True
+    if not _has_display():
+        if for_setup:
+            raise RuntimeError(
+                "Setup Login needs a screen (no DISPLAY on this server). "
+                "Log in on your Mac with python server.py → Setup, then copy "
+                "browser_profile_<name>/ to this machine."
+            )
+        return True
+    return False
+
+
+async def _open_persistent_context(headless: bool, profile_name: str | None = None, *, for_setup: bool = False) -> BrowserContext:
     global _pw_instance
     _pw_instance = await async_playwright().start()
 
@@ -116,6 +139,8 @@ async def _open_persistent_context(headless: bool, profile_name: str | None = No
     profile_dir = get_profile_dir(profile_name)
     profile_dir.mkdir(exist_ok=True)
     _clear_profile_locks(profile_dir)
+
+    headless = _resolve_headless(headless, for_setup=for_setup)
 
     context = await _pw_instance.chromium.launch_persistent_context(
         user_data_dir=str(profile_dir),
@@ -144,11 +169,30 @@ async def check_session_status(profile_name: str | None = None) -> dict:
             "ig": False,
             "reason": f"No browser profile for '{profile_name}'. Use Setup Login.",
         }
-    return {
-        "fb": True,
-        "ig": True,
-        "reason": f"Profile '{profile_name}' exists — sessions should be active.",
-    }
+
+    context = None
+    try:
+        context = await _open_persistent_context(headless=True, profile_name=profile_name)
+        page = context.pages[0] if context.pages else await context.new_page()
+        fb_ok = await _is_fb_logged_in(page)
+        ig_ok = await _is_ig_logged_in(page)
+        if fb_ok and ig_ok:
+            reason = f"Profile '{profile_name}' — Facebook and Instagram sessions active."
+        elif ig_ok:
+            reason = f"Profile '{profile_name}' — Instagram OK; Facebook not logged in."
+        elif fb_ok:
+            reason = f"Profile '{profile_name}' — Facebook OK; Instagram not logged in."
+        else:
+            reason = (
+                f"Profile '{profile_name}' exists but sessions look logged out. "
+                "Re-login on your Mac and copy browser_profile_* again."
+            )
+        return {"fb": fb_ok, "ig": ig_ok, "reason": reason}
+    except Exception as e:
+        return {"fb": False, "ig": False, "reason": str(e)}
+    finally:
+        if context:
+            await context.close()
 
 
 async def launch_browser(
@@ -174,7 +218,7 @@ async def launch_browser(
 
 async def setup_login(platform: str = "facebook", profile_name: str | None = None) -> None:
     """Open a visible browser for one-time manual login on the given profile."""
-    context = await _open_persistent_context(headless=False, profile_name=profile_name)
+    context = await _open_persistent_context(headless=False, profile_name=profile_name, for_setup=True)
     page = context.pages[0] if context.pages else await context.new_page()
 
     if platform == "instagram":

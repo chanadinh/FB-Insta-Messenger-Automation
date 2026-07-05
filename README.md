@@ -138,3 +138,80 @@ On first use, make the package public or authenticate the VM (`docker login ghcr
 2. Clone or copy this repo (at least `docker-compose.yml` and optionally `Dockerfile`).
 3. Create `config.json` / `contacts.csv` via the UI after first start, or seed files under the volume by exec’ing into the container. Easiest: start the stack, open the dashboard, upload/configure.
 4. Set **`DOCKER_IMAGE=ghcr.io/<your-lowercase-owner>/<repo>:main`** in the environment or in an `.env` file next to `docker-compose.yml`, then `docker compose pull && docker compose up -d`.
+
+## Linux server (without Docker)
+
+If you run `python server.py` directly on Ubuntu/Debian, Playwright needs **both** the Python package and a **downloaded Chromium** (they are separate steps).
+
+```bash
+cd /path/to/FB-Insta-Messenger-Automation
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Download Chromium for this Playwright version (~150 MB)
+playwright install chromium
+
+# Install OS libraries Chromium needs (requires sudo, once per machine)
+sudo playwright install-deps chromium
+```
+
+Verify:
+
+```bash
+python -c "from playwright.sync_api import sync_playwright; sync_playwright().start().chromium.launch(headless=True).close(); print('ok')"
+```
+
+### Server settings
+
+In **`config.json`** (via the dashboard **Settings** tab), enable **Headless browser** — there is no display on a typical VPS.
+
+### One-time Instagram/Facebook login on a headless server
+
+**Setup Login** opens a visible browser, which usually needs a desktop. Options:
+
+1. **Easiest:** Run **Setup Login** on your Mac/PC, then copy the profile folder to the server:
+   ```bash
+   scp -r browser_profile_main user@your-server:/path/to/app/data/browser_profile_main
+   ```
+   (Use `/data/browser_profile_main` if `APP_DATA_DIR=/data`.)
+
+2. **On the server with a virtual display:**
+   ```bash
+   sudo apt-get install -y xvfb
+   xvfb-run python server.py
+   ```
+   Open the dashboard, click **Setup** for Instagram/Facebook, complete login in the virtual display session.
+
+### If you see `Executable doesn't exist at .../chromium-XXXX/...`
+
+The Python package and browser build are out of sync. As the **`linux`** user (or whichever user runs the app):
+
+```bash
+source venv/bin/activate
+pip install -r requirements.txt   # pins playwright==1.49.0
+playwright install chromium
+```
+
+If you upgraded Playwright manually (`pip install -U playwright`), run **`playwright install chromium`** again after every upgrade.
+
+### systemd service (optional)
+
+Run as the same user that ran `playwright install`:
+
+```ini
+[Unit]
+Description=FB Messenger Automation
+After=network.target
+
+[Service]
+Type=simple
+User=linux
+WorkingDirectory=/path/to/FB-Insta-Messenger-Automation
+Environment=APP_DATA_DIR=/path/to/data
+ExecStart=/path/to/FB-Insta-Messenger-Automation/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```

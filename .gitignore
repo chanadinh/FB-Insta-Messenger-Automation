@@ -35,6 +35,7 @@ message_log.csv
 contacts.csv
 schedules.json
 profiles.json
+debug/
 
 # Generic logs
 *.log

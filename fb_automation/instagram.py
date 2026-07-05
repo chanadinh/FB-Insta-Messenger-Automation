@@ -4,19 +4,32 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import datetime
+from pathlib import Path
+from typing import Callable
+
 from playwright.async_api import Page
+
+from fb_automation.paths import data_path
 
 INSTAGRAM_URL = "https://www.instagram.com"
 NEW_DM_URL = f"{INSTAGRAM_URL}/direct/new/"
 
+EmitFn = Callable[[str, str], None] | None
+
+
+def _emit(emit: EmitFn, level: str, message: str) -> None:
+    line = message if message.startswith("[IG]") else f"[IG] {message}"
+    print(line)
+    if emit:
+        emit(level, line)
+
 
 def _is_direct_thread_url(url: str) -> bool:
-    """Check if the URL is an Instagram direct thread URL like /direct/t/ID/."""
     return "instagram.com/direct/t/" in url
 
 
 def _extract_username(profile_url: str) -> str | None:
-    """Extract the Instagram username from a profile URL or bare username."""
     url = profile_url.strip().rstrip("/")
 
     if "instagram.com" in url:
@@ -33,17 +46,79 @@ def _extract_username(profile_url: str) -> str | None:
     return None
 
 
+async def _save_debug(page: Page, label: str) -> Path | None:
+    try:
+        debug_dir = data_path("debug")
+        debug_dir.mkdir(exist_ok=True)
+        path = debug_dir / f"{label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        await page.screenshot(path=str(path), full_page=True)
+        return path
+    except Exception:
+        return None
+
+
+async def _ig_needs_login(page: Page) -> bool:
+    url = page.url.lower()
+    if any(x in url for x in ("/accounts/login", "/challenge", "/consent")):
+        return True
+    for sel in (
+        'form[id="loginForm"]',
+        'input[name="username"]',
+        'button:has-text("Log in")',
+        'button:has-text("Log In")',
+    ):
+        try:
+            if await page.query_selector(sel):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+async def _wait_for_inbox(page: Page, emit: EmitFn) -> bool:
+    """Wait for Instagram DM UI to hydrate (especially in headless)."""
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(random.randint(2500, 4000))
+
+    if await _ig_needs_login(page):
+        _emit(emit, "error", "Not logged in — Instagram showed the login page. "
+              "Log in on your Mac (Setup), then copy browser_profile_main/ to the server again.")
+        await _save_debug(page, "ig_login_required")
+        return False
+
+    # Thread or compose UI
+    for sel in (
+        'div[role="textbox"][contenteditable="true"]',
+        'textarea[placeholder*="Message"]',
+        'textarea[placeholder*="Nhắn tin"]',
+        'div[aria-label*="Message"]',
+        'div[aria-label*="Nhắn tin"]',
+        '[data-pagelet="IGDInboxThread"]',
+    ):
+        try:
+            await page.wait_for_selector(sel, timeout=12000)
+            return True
+        except Exception:
+            continue
+
+    _emit(emit, "warn", f"Inbox UI slow or missing (url={page.url}). Will retry finding input…")
+    return True
+
+
 async def _dismiss_ig_dialogs(page: Page) -> None:
-    """Dismiss common Instagram popups (notifications, etc.)."""
     dismiss_selectors = [
         'button:has-text("Not Now")',
         'button:has-text("Không phải bây giờ")',
         '[role="dialog"] button:has-text("Not Now")',
         'button:has-text("Lúc khác")',
+        'button:has-text("Turn on")',
     ]
     for sel in dismiss_selectors:
         try:
-            btn = await page.wait_for_selector(sel, timeout=2000)
+            btn = await page.wait_for_selector(sel, timeout=1500)
             if btn:
                 await btn.click()
                 await page.wait_for_timeout(800)
@@ -51,60 +126,63 @@ async def _dismiss_ig_dialogs(page: Page) -> None:
             pass
 
 
-async def send_ig_message(page: Page, profile_url: str, message: str) -> bool:
-    """Send an Instagram DM.
-
-    Accepts two URL formats:
-      - Direct thread:  https://www.instagram.com/direct/t/104247194311070/
-      - Profile / username:  https://www.instagram.com/username  (falls back to search)
-    """
+async def send_ig_message(
+    page: Page,
+    profile_url: str,
+    message: str,
+    emit: EmitFn = None,
+) -> bool:
     url = profile_url.strip()
 
-    # ── Fast path: direct thread URL → navigate straight to inbox ──
     if _is_direct_thread_url(url):
-        print(f"  [IG NAV] Opening inbox: {url}")
+        _emit(emit, "info", f"Opening inbox: {url}")
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(random.randint(2000, 3000))
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
         except Exception as e:
-            print(f"  [IG ERROR] Failed to open inbox: {e}")
+            _emit(emit, "error", f"Failed to open inbox: {e}")
+            return False
+        if not await _wait_for_inbox(page, emit):
             return False
         await _dismiss_ig_dialogs(page)
-        return await _type_and_send(page, message)
+        return await _type_and_send(page, message, emit)
 
-    # ── Fallback: search by username via /direct/new/ ──────────
     username = _extract_username(url)
     if not username:
-        print(f"  [IG ERROR] Could not extract username from: {url}")
+        _emit(emit, "error", f"Could not extract username from: {url}")
         return False
 
-    print(f"  [IG NAV] Searching for @{username} via compose screen")
-
+    _emit(emit, "info", f"Searching for @{username} via compose screen")
     try:
-        await page.goto(NEW_DM_URL, wait_until="domcontentloaded", timeout=30000)
+        await page.goto(NEW_DM_URL, wait_until="domcontentloaded", timeout=45000)
         await page.wait_for_timeout(random.randint(2000, 3000))
     except Exception as e:
-        print(f"  [IG ERROR] Failed to open DM compose: {e}")
+        _emit(emit, "error", f"Failed to open DM compose: {e}")
+        return False
+
+    if await _ig_needs_login(page):
+        _emit(emit, "error", "Not logged in on Instagram.")
+        await _save_debug(page, "ig_login_required")
         return False
 
     await _dismiss_ig_dialogs(page)
 
     search_box = None
-    for sel in [
+    for sel in (
         'input[placeholder="Search..."]',
         'input[placeholder="Tìm kiếm..."]',
         'input[name="queryBox"]',
         'input[type="text"][autocomplete]',
-    ]:
+    ):
         try:
-            search_box = await page.wait_for_selector(sel, timeout=5000)
+            search_box = await page.wait_for_selector(sel, timeout=8000)
             if search_box:
                 break
         except Exception:
             continue
 
     if not search_box:
-        print("  [IG ERROR] Could not find the 'To' search input.")
+        _emit(emit, "error", "Could not find the 'To' search input.")
+        await _save_debug(page, "ig_no_search")
         return False
 
     try:
@@ -113,36 +191,37 @@ async def send_ig_message(page: Page, profile_url: str, message: str) -> bool:
         await search_box.fill(username)
         await page.wait_for_timeout(random.randint(2000, 3000))
     except Exception as e:
-        print(f"  [IG ERROR] Failed to search for user: {e}")
+        _emit(emit, "error", f"Failed to search for user: {e}")
         return False
 
     user_result = None
-    for sel in [
+    for sel in (
         f'span:has-text("{username}")',
         '[role="listbox"] [role="option"]',
         'div[role="dialog"] div[role="button"]',
         f'button:has-text("{username}")',
-    ]:
+    ):
         try:
-            user_result = await page.wait_for_selector(sel, timeout=5000)
+            user_result = await page.wait_for_selector(sel, timeout=8000)
             if user_result:
                 break
         except Exception:
             continue
 
     if not user_result:
-        print(f"  [IG ERROR] User @{username} not found in search results.")
+        _emit(emit, "error", f"User @{username} not found in search results.")
+        await _save_debug(page, "ig_user_not_found")
         return False
 
     try:
         await user_result.click()
         await page.wait_for_timeout(random.randint(1000, 2000))
     except Exception as e:
-        print(f"  [IG ERROR] Failed to select user: {e}")
+        _emit(emit, "error", f"Failed to select user: {e}")
         return False
 
     chat_btn = None
-    for sel in [
+    for sel in (
         'div[role="button"]:has-text("Chat")',
         'button:has-text("Chat")',
         'div[role="button"]:has-text("Next")',
@@ -151,74 +230,104 @@ async def send_ig_message(page: Page, profile_url: str, message: str) -> bool:
         'button:has-text("Nhắn tin")',
         'div[role="button"]:has-text("Tiếp")',
         'button:has-text("Tiếp")',
-    ]:
+    ):
         try:
-            chat_btn = await page.wait_for_selector(sel, timeout=5000)
+            chat_btn = await page.wait_for_selector(sel, timeout=8000)
             if chat_btn:
                 break
         except Exception:
             continue
 
     if not chat_btn:
-        print("  [IG ERROR] Could not find Chat/Next button.")
+        _emit(emit, "error", "Could not find Chat/Next button.")
+        await _save_debug(page, "ig_no_chat_btn")
         return False
 
     try:
         await chat_btn.click()
         await page.wait_for_timeout(random.randint(2000, 3000))
     except Exception as e:
-        print(f"  [IG ERROR] Failed to click Chat/Next: {e}")
+        _emit(emit, "error", f"Failed to click Chat/Next: {e}")
         return False
 
     await _dismiss_ig_dialogs(page)
-    return await _type_and_send(page, message)
+    return await _type_and_send(page, message, emit)
 
 
-async def _type_and_send(page: Page, message: str) -> bool:
-    """Find the message input, type, and press Enter."""
+async def _type_and_send(page: Page, message: str, emit: EmitFn = None) -> bool:
     input_box = None
     input_selectors = [
+        'div[role="textbox"][contenteditable="true"]',
+        'div[aria-label="Message"][role="textbox"]',
+        'div[aria-label*="Message"][contenteditable="true"]',
+        'div[aria-label*="Nhắn tin"][contenteditable="true"]',
         'textarea[placeholder*="Message"]',
         'textarea[placeholder*="message"]',
         'textarea[placeholder*="Nhắn tin"]',
-        'div[role="textbox"][contenteditable="true"]',
-        'div[aria-label="Message"][role="textbox"]',
         'textarea[aria-label="Message"]',
-        'p.xat24cr',
+        'p[contenteditable="true"]',
     ]
     for sel in input_selectors:
         try:
-            input_box = await page.wait_for_selector(sel, timeout=8000)
+            input_box = await page.wait_for_selector(sel, timeout=15000)
             if input_box:
                 break
         except Exception:
             continue
 
     if not input_box:
-        print("  [IG ERROR] Could not find message input box.")
+        _emit(emit, "error", f"Could not find message input (url={page.url}). "
+              "Session may be expired or Instagram UI changed.")
+        shot = await _save_debug(page, "ig_no_input")
+        if shot:
+            _emit(emit, "info", f"Debug screenshot saved: {shot}")
         return False
 
     try:
         await input_box.click()
         await page.wait_for_timeout(random.randint(400, 800))
 
-        for char in message:
-            await page.keyboard.type(char, delay=random.randint(30, 100))
-            if random.random() < 0.03:
-                await page.wait_for_timeout(random.randint(200, 500))
+        tag = await input_box.evaluate("el => el.tagName.toLowerCase()")
+        if tag == "textarea":
+            await input_box.fill(message)
+        else:
+            # contenteditable — insert_text works better than per-char typing in headless
+            await page.keyboard.insert_text(message)
 
         await page.wait_for_timeout(random.randint(800, 1500))
-        await page.keyboard.press("Enter")
-        await page.wait_for_timeout(random.randint(2000, 4000))
 
-        print("  [IG OK] Message sent.")
+        sent = False
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(1500)
+
+        # Some IG builds ignore Enter in headless — click Send
+        for sel in (
+            'div[role="button"]:has-text("Send")',
+            'button:has-text("Send")',
+            'div[role="button"]:has-text("Gửi")',
+            'button:has-text("Gửi")',
+        ):
+            try:
+                btn = await page.query_selector(sel)
+                if btn and await btn.is_visible():
+                    await btn.click()
+                    sent = True
+                    break
+            except Exception:
+                continue
+
+        if not sent:
+            sent = True  # Enter was pressed; assume sent if no explicit Send button
+
+        await page.wait_for_timeout(random.randint(2000, 3000))
+        _emit(emit, "ok", "Message sent.")
         return True
 
     except Exception as e:
-        print(f"  [IG ERROR] Failed to type/send message: {e}")
+        _emit(emit, "error", f"Failed to type/send message: {e}")
+        await _save_debug(page, "ig_send_failed")
         return False
 
 
-async def send_ig_follow_up(page: Page, message: str) -> bool:
-    """Send a follow-up in the currently open Instagram DM thread."""
-    return await _type_and_send(page, message)
+async def send_ig_follow_up(page: Page, message: str, emit: EmitFn = None) -> bool:
+    return await _type_and_send(page, message, emit)
