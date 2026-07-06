@@ -229,34 +229,94 @@ async def launch_browser(
     return context, page
 
 
-async def setup_login(platform: str = "facebook", profile_name: str | None = None) -> None:
-    """Open a visible browser for one-time manual login on the given profile."""
+async def setup_login(
+    platform: str = "facebook",
+    profile_name: str | None = None,
+    *,
+    debug_port: int | None = None,
+    wait_seconds: int = 600,
+) -> None:
+    """Open a browser for manual login. Use debug_port on VMs (log in via SSH tunnel + Chrome)."""
     context = None
+    extra_args = list(_BROWSER_ARGS)
+    ignore = None
+    if debug_port:
+        extra_args.append(f"--remote-debugging-port={debug_port}")
+        ignore = ["--remote-debugging-pipe"]
+
     try:
-        context = await _open_persistent_context(headless=False, profile_name=profile_name, for_setup=True)
+        if profile_name is None:
+            profile_name = get_active_profile()
+        profile_dir = get_profile_dir(profile_name)
+        profile_dir.mkdir(exist_ok=True)
+        _clear_profile_locks(profile_dir)
+
+        global _pw_instance
+        if _pw_instance is not None:
+            await _stop_playwright()
+        _pw_instance = await async_playwright().start()
+
+        headless = True if debug_port else _resolve_headless(False, for_setup=True)
+        launch_kw: dict = dict(
+            user_data_dir=str(profile_dir),
+            headless=headless,
+            args=extra_args,
+            viewport={"width": 1280, "height": 800},
+            user_agent=_USER_AGENT,
+            locale="en-US",
+        )
+        if ignore:
+            launch_kw["ignore_default_args"] = ignore
+
+        context = await _pw_instance.chromium.launch_persistent_context(**launch_kw)
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+        await _import_cookies_if_needed(context, profile_dir)
+
         page = context.pages[0] if context.pages else await context.new_page()
+        login_url = INSTAGRAM_LOGIN if platform == "instagram" else FACEBOOK_LOGIN
 
         if platform == "instagram":
-            already = await _is_ig_logged_in(page)
-            if already:
+            if await _is_ig_logged_in(page):
                 return
-            await page.goto(INSTAGRAM_LOGIN, wait_until="domcontentloaded")
-            while True:
+        elif await _is_fb_logged_in(page):
+            return
+
+        await page.goto(login_url, wait_until="domcontentloaded")
+
+        if debug_port:
+            import time
+            deadline = time.monotonic() + wait_seconds
+            print(
+                f"\n>>> Log in using Chrome on your Mac (SSH tunnel to port {debug_port}):\n"
+                f"    ssh -L {debug_port}:127.0.0.1:{debug_port} USER@YOUR_VM\n"
+                f"    Open: http://127.0.0.1:{debug_port}\n"
+                f"    Click the Instagram tab → log in (password + 2FA).\n"
+                f"    Waiting up to {wait_seconds // 60} minutes…\n"
+            )
+            while time.monotonic() < deadline:
                 await page.wait_for_timeout(3000)
-                url = page.url
-                if "/accounts/login" not in url and "/challenge" not in url:
-                    form = await page.query_selector('form[id="loginForm"]')
-                    if form is None:
+                if platform == "instagram":
+                    if await _is_ig_logged_in(page):
                         break
+                elif await _is_fb_logged_in(page):
+                    break
+            else:
+                raise TimeoutError(
+                    f"Login not detected within {wait_seconds}s. "
+                    f"Complete login via http://127.0.0.1:{debug_port} and run again."
+                )
         else:
-            already = await _is_fb_logged_in(page)
-            if already:
-                return
-            await page.goto(FACEBOOK_LOGIN, wait_until="domcontentloaded")
             while True:
                 await page.wait_for_timeout(3000)
                 url = page.url
-                if "login" not in url and "checkpoint" not in url:
+                if platform == "instagram":
+                    if "/accounts/login" not in url and "/challenge" not in url:
+                        form = await page.query_selector('form[id="loginForm"]')
+                        if form is None:
+                            break
+                elif "login" not in url and "checkpoint" not in url:
                     form = await page.query_selector('form[action*="login"]')
                     if form is None:
                         break

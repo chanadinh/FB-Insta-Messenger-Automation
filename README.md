@@ -168,27 +168,50 @@ In **`config.json`** (via the dashboard **Settings** tab), enable **Headless bro
 
 ### One-time Instagram/Facebook login on a headless server
 
-Copying `browser_profile_main/` from your Mac **often does not work** for Instagram. Meta ties sessions to **IP, OS, and browser fingerprint**. A profile created on macOS is frequently rejected on a Linux VM and you get the login page again.
+Copying `browser_profile_main/` from your Mac **often fails for Instagram** (IP/OS/fingerprint change). Use one of these:
 
-**Reliable approach: log in on the VM itself** (once), then run headless sends.
+#### Option A — Export session on Mac, import on VM (recommended for Instagram)
+
+**On your Mac** (after logging in via dashboard → Setup):
 
 ```bash
-sudo apt-get update && sudo apt-get install -y xvfb
+cd "/Users/chandinh/Facebook automation"
+source venv/bin/activate
+python scripts/export_session.py instagram
+scp ig_session.json linux@192.168.1.171:~/FB-Insta-Messenger-Automation/
+```
+
+**On the VM:**
+
+```bash
+cd ~/FB-Insta-Messenger-Automation
+source venv/bin/activate
+pkill -f uvicorn || true
+python scripts/import_session.py ig_session.json instagram
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+#### Option B — Log in via Chrome on your Mac (SSH tunnel to VM)
+
+**Terminal 1 — on the VM:**
+
+```bash
 cd ~/FB-Insta-Messenger-Automation
 chmod +x scripts/vm_setup_login.sh
 ./scripts/vm_setup_login.sh instagram
 ```
 
-This uses a virtual screen (`xvfb-run`) so Setup Login can open Chromium on the server. Complete login (password + 2FA). Then:
+**Terminal 2 — on your Mac:**
 
 ```bash
-source venv/bin/activate
-uvicorn server:app --host 0.0.0.0 --port 8000
+ssh -L 9222:127.0.0.1:9222 linux@192.168.1.171
 ```
 
-Dashboard → Instagram should show **Session ready**. Keep **Headless** on for normal sends.
+Open **http://127.0.0.1:9222** in Chrome → click the Instagram tab → log in (password + 2FA). Terminal 1 exits when login is detected.
 
-**Alternative (Mac copy):** Stop the app on Mac and VM, `scp -r browser_profile_main`, same profile name (`Main`). Works for Facebook more often than Instagram; if IG still shows login, use `vm_setup_login.sh` instead.
+#### Option C — Copy whole profile folder
+
+Stop the app on Mac and VM, then `scp -r browser_profile_main`. Works for Facebook more often than Instagram.
 
 ### If you see `Executable doesn't exist at .../chromium-XXXX/...`
 
