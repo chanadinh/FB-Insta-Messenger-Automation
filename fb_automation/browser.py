@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import time
 from pathlib import Path
 from playwright.async_api import async_playwright, BrowserContext, Page
 
@@ -107,6 +109,17 @@ def _clear_profile_locks(profile_dir: Path) -> None:
             lock.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def _wait_for_port(port: int, timeout: float = 30.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.5)
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return True
+        time.sleep(0.3)
+    return False
 
 
 def _has_display() -> bool:
@@ -242,6 +255,7 @@ async def setup_login(
     ignore = None
     if debug_port:
         extra_args.append(f"--remote-debugging-port={debug_port}")
+        extra_args.append("--remote-debugging-address=127.0.0.1")
         ignore = ["--remote-debugging-pipe"]
 
     try:
@@ -277,24 +291,23 @@ async def setup_login(
         page = context.pages[0] if context.pages else await context.new_page()
         login_url = INSTAGRAM_LOGIN if platform == "instagram" else FACEBOOK_LOGIN
 
-        if platform == "instagram":
-            if await _is_ig_logged_in(page):
-                return
-        elif await _is_fb_logged_in(page):
-            return
-
-        await page.goto(login_url, wait_until="domcontentloaded")
-
         if debug_port:
-            import time
-            deadline = time.monotonic() + wait_seconds
+            if not _wait_for_port(debug_port):
+                raise RuntimeError(
+                    f"Chromium did not open debug port {debug_port}. "
+                    "Check playwright install chromium and that nothing else uses this port."
+                )
             print(
-                f"\n>>> Log in using Chrome on your Mac (SSH tunnel to port {debug_port}):\n"
-                f"    ssh -L {debug_port}:127.0.0.1:{debug_port} USER@YOUR_VM\n"
-                f"    Open: http://127.0.0.1:{debug_port}\n"
-                f"    Click the Instagram tab → log in (password + 2FA).\n"
-                f"    Waiting up to {wait_seconds // 60} minutes…\n"
+                f"\n>>> Browser ready on the VM at 127.0.0.1:{debug_port}\n"
+                f"    NOW on your Mac (new terminal), run:\n"
+                f"      ssh -N -L {debug_port}:127.0.0.1:{debug_port} linux@YOUR_VM_IP\n"
+                f"    Then open Chrome: http://127.0.0.1:{debug_port}\n"
+                f"    Click the {platform} tab → log in (password + 2FA).\n"
+                f"    Waiting up to {wait_seconds // 60} minutes…\n",
+                flush=True,
             )
+            await page.goto(login_url, wait_until="domcontentloaded")
+            deadline = time.monotonic() + wait_seconds
             while time.monotonic() < deadline:
                 await page.wait_for_timeout(3000)
                 if platform == "instagram":
@@ -308,6 +321,13 @@ async def setup_login(
                     f"Complete login via http://127.0.0.1:{debug_port} and run again."
                 )
         else:
+            if platform == "instagram":
+                if await _is_ig_logged_in(page):
+                    return
+            elif await _is_fb_logged_in(page):
+                return
+
+            await page.goto(login_url, wait_until="domcontentloaded")
             while True:
                 await page.wait_for_timeout(3000)
                 url = page.url
