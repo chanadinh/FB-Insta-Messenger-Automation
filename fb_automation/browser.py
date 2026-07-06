@@ -130,8 +130,20 @@ def _resolve_headless(headless: bool, *, for_setup: bool = False) -> bool:
     return False
 
 
+async def _stop_playwright() -> None:
+    global _pw_instance
+    if _pw_instance is not None:
+        try:
+            await _pw_instance.stop()
+        except Exception:
+            pass
+        _pw_instance = None
+
+
 async def _open_persistent_context(headless: bool, profile_name: str | None = None, *, for_setup: bool = False) -> BrowserContext:
     global _pw_instance
+    if _pw_instance is not None:
+        await _stop_playwright()
     _pw_instance = await async_playwright().start()
 
     if profile_name is None:
@@ -193,6 +205,7 @@ async def check_session_status(profile_name: str | None = None) -> dict:
     finally:
         if context:
             await context.close()
+        await _stop_playwright()
 
 
 async def launch_browser(
@@ -218,39 +231,43 @@ async def launch_browser(
 
 async def setup_login(platform: str = "facebook", profile_name: str | None = None) -> None:
     """Open a visible browser for one-time manual login on the given profile."""
-    context = await _open_persistent_context(headless=False, profile_name=profile_name, for_setup=True)
-    page = context.pages[0] if context.pages else await context.new_page()
+    context = None
+    try:
+        context = await _open_persistent_context(headless=False, profile_name=profile_name, for_setup=True)
+        page = context.pages[0] if context.pages else await context.new_page()
 
-    if platform == "instagram":
-        already = await _is_ig_logged_in(page)
-        if already:
-            await context.close()
-            return
-        await page.goto(INSTAGRAM_LOGIN, wait_until="domcontentloaded")
-        while True:
-            await page.wait_for_timeout(3000)
-            url = page.url
-            if "/accounts/login" not in url and "/challenge" not in url:
-                form = await page.query_selector('form[id="loginForm"]')
-                if form is None:
-                    break
-    else:
-        already = await _is_fb_logged_in(page)
-        if already:
-            await context.close()
-            return
-        await page.goto(FACEBOOK_LOGIN, wait_until="domcontentloaded")
-        while True:
-            await page.wait_for_timeout(3000)
-            url = page.url
-            if "login" not in url and "checkpoint" not in url:
-                form = await page.query_selector('form[action*="login"]')
-                if form is None:
-                    break
+        if platform == "instagram":
+            already = await _is_ig_logged_in(page)
+            if already:
+                return
+            await page.goto(INSTAGRAM_LOGIN, wait_until="domcontentloaded")
+            while True:
+                await page.wait_for_timeout(3000)
+                url = page.url
+                if "/accounts/login" not in url and "/challenge" not in url:
+                    form = await page.query_selector('form[id="loginForm"]')
+                    if form is None:
+                        break
+        else:
+            already = await _is_fb_logged_in(page)
+            if already:
+                return
+            await page.goto(FACEBOOK_LOGIN, wait_until="domcontentloaded")
+            while True:
+                await page.wait_for_timeout(3000)
+                url = page.url
+                if "login" not in url and "checkpoint" not in url:
+                    form = await page.query_selector('form[action*="login"]')
+                    if form is None:
+                        break
 
-    await page.wait_for_timeout(2000)
-    await context.close()
+        await page.wait_for_timeout(2000)
+    finally:
+        if context:
+            await context.close()
+        await _stop_playwright()
 
 
 async def close_browser(context: BrowserContext) -> None:
     await context.close()
+    await _stop_playwright()
