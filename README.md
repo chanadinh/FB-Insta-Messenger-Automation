@@ -168,20 +168,27 @@ In **`config.json`** (via the dashboard **Settings** tab), enable **Headless bro
 
 ### One-time Instagram/Facebook login on a headless server
 
-**Setup Login** opens a visible browser, which usually needs a desktop. Options:
+Copying `browser_profile_main/` from your Mac **often does not work** for Instagram. Meta ties sessions to **IP, OS, and browser fingerprint**. A profile created on macOS is frequently rejected on a Linux VM and you get the login page again.
 
-1. **Easiest:** Run **Setup Login** on your Mac/PC, then copy the profile folder to the server:
-   ```bash
-   scp -r browser_profile_main user@your-server:/path/to/app/data/browser_profile_main
-   ```
-   (Use `/data/browser_profile_main` if `APP_DATA_DIR=/data`.)
+**Reliable approach: log in on the VM itself** (once), then run headless sends.
 
-2. **On the server with a virtual display:**
-   ```bash
-   sudo apt-get install -y xvfb
-   xvfb-run python server.py
-   ```
-   Open the dashboard, click **Setup** for Instagram/Facebook, complete login in the virtual display session.
+```bash
+sudo apt-get update && sudo apt-get install -y xvfb
+cd ~/FB-Insta-Messenger-Automation
+chmod +x scripts/vm_setup_login.sh
+./scripts/vm_setup_login.sh instagram
+```
+
+This uses a virtual screen (`xvfb-run`) so Setup Login can open Chromium on the server. Complete login (password + 2FA). Then:
+
+```bash
+source venv/bin/activate
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+Dashboard → Instagram should show **Session ready**. Keep **Headless** on for normal sends.
+
+**Alternative (Mac copy):** Stop the app on Mac and VM, `scp -r browser_profile_main`, same profile name (`Main`). Works for Facebook more often than Instagram; if IG still shows login, use `vm_setup_login.sh` instead.
 
 ### If you see `Executable doesn't exist at .../chromium-XXXX/...`
 
