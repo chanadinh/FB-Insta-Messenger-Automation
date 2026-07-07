@@ -304,7 +304,7 @@ class AutomationEngine:
                         if platform == "instagram":
                             replies = await collect_ig_replies(page, url, sent_messages, emit=lambda level, msg: self._emit(level, msg))
                         else:
-                            replies = await collect_fb_replies(page, url, sent_messages)
+                            replies = await collect_fb_replies(page, url, sent_messages, emit=lambda level, msg: self._emit(level, msg))
 
                         new_count = 0
                         for reply in replies:
@@ -371,7 +371,7 @@ class AutomationEngine:
                 if platform == "instagram":
                     ok = await send_ig_message(page, profile_url, message, emit=lambda level, msg: self._emit(level, msg))
                 else:
-                    ok = await send_message(page, profile_url, message)
+                    ok = await send_message(page, profile_url, message, emit=lambda level, msg: self._emit(level, msg))
 
                 contact = {
                     "first_name": reply_row.get("first_name", ""),
@@ -560,7 +560,7 @@ class AutomationEngine:
             if platform == "instagram":
                 success = await send_ig_message(page, profile_url, message, emit=emit)
             else:
-                success = await send_message(page, profile_url, message)
+                success = await send_message(page, profile_url, message, emit=emit)
 
             if success:
                 log_message({**contact, "profile_url": profile_url}, "sent", f"[{tag}] {message}")
@@ -588,7 +588,7 @@ class AutomationEngine:
                         if platform == "instagram":
                             fu_ok = await send_ig_follow_up(page, fu, emit=emit)
                         else:
-                            fu_ok = await send_follow_up(page, fu)
+                            fu_ok = await send_follow_up(page, fu, emit=emit)
                         status = "sent" if fu_ok else "failed"
                         log_message({**contact, "profile_url": profile_url}, status, f"[{tag}] [follow-up {j}] {fu}")
             else:
