@@ -36,16 +36,28 @@ def save_schedules(data: dict) -> None:
     SCHEDULES_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
+def _local_naive(dt: datetime) -> datetime:
+    """Return a timezone-free datetime in the server's local timezone."""
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone().replace(tzinfo=None)
+
+
+def _parse_local_naive(value: str) -> datetime:
+    """Parse stored ISO datetimes, accepting both naive and offset-aware values."""
+    return _local_naive(datetime.fromisoformat(value.replace("Z", "+00:00")))
+
+
 def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
     """Return the next run time for a job (local timezone)."""
-    now = after or datetime.now()
+    now = _local_naive(after or datetime.now())
     schedule_type = job.get("schedule_type", "daily")
 
     if schedule_type == "interval":
         hours = max(1, int(job.get("interval_hours", 1)))
         last = job.get("last_run")
         if last:
-            base = datetime.fromisoformat(last)
+            base = _parse_local_naive(last)
             nxt = base + timedelta(hours=hours)
             return nxt if nxt > now else now
         return now + timedelta(hours=hours)
@@ -271,7 +283,7 @@ class JobScheduler:
             await asyncio.sleep(TICK_SECONDS)
 
     async def _tick(self) -> None:
-        now = datetime.now()
+        now = _local_naive(datetime.now())
         for job in self.list_jobs():
             if not job.get("enabled"):
                 continue
@@ -279,5 +291,5 @@ class JobScheduler:
             if not nxt:
                 job = self.update_job(job["id"], {})
                 nxt = job["next_run"]
-            if datetime.fromisoformat(nxt) <= now:
+            if _parse_local_naive(nxt) <= now:
                 await self._execute_job(job)
