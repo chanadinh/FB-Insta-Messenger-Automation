@@ -886,6 +886,12 @@
             </select>
           </div>
           <div class="form-group">
+            <label>Timezone</label>
+            <select id="sched-timezone"></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
             <label>Browser profile (optional)</label>
             <select id="sched-profile"><option value="">Active profile</option></select>
           </div>
@@ -939,12 +945,13 @@
                 <th>When</th>
                 <th>Contact</th>
                 <th>Platforms</th>
+                <th>Timezone</th>
                 <th>Idea</th>
                 <th>Next run</th>
                 <th>Actions</th>
               </tr>
             </thead>
-            <tbody id="schedules-body"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
+            <tbody id="schedules-body"><tr><td colspan="9" class="empty">Loading...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1475,6 +1482,7 @@ async function collectReplies() {
 
 let scheduleContacts = [];
 let scheduleJobs = [];
+let scheduleTimezoneDefault = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
 function toggleScheduleFields() {
   const type = document.getElementById('sched-type').value;
@@ -1491,11 +1499,13 @@ function formatScheduleWhen(job) {
   return `Daily ${h}:${m}`;
 }
 
-function formatNextRun(iso) {
+function formatNextRun(iso, timezone) {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const opts = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  if (timezone) opts.timeZone = timezone;
+  return d.toLocaleString(undefined, opts);
 }
 
 function contactLabel(c, i) {
@@ -1509,6 +1519,11 @@ function contactLabel(c, i) {
 async function loadSchedulesPage() {
   scheduleContacts = await api('/api/contacts');
   const profileData = await api('/api/profiles');
+  const timezoneData = await api('/api/timezones');
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  scheduleTimezoneDefault = timezoneData.timezones.includes(browserTimezone)
+    ? browserTimezone
+    : (timezoneData.current || scheduleTimezoneDefault);
 
   const contactSel = document.getElementById('sched-contact');
   if (!scheduleContacts.length) {
@@ -1523,6 +1538,16 @@ async function loadSchedulesPage() {
   profileSel.innerHTML = '<option value="">Active profile</option>' +
     profileData.profiles.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
 
+  const timezoneSel = document.getElementById('sched-timezone');
+  const popularZones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Asia/Ho_Chi_Minh', 'UTC'];
+  const zones = [
+    ...popularZones.filter(tz => timezoneData.timezones.includes(tz)),
+    ...timezoneData.timezones.filter(tz => !popularZones.includes(tz)),
+  ];
+  timezoneSel.innerHTML = zones.map(tz =>
+    `<option value="${escHtml(tz)}" ${tz === scheduleTimezoneDefault ? 'selected' : ''}>${escHtml(tz)}</option>`
+  ).join('');
+
   await loadSchedules();
 }
 
@@ -1534,7 +1559,7 @@ async function loadSchedules() {
 function renderSchedules() {
   const tbody = document.getElementById('schedules-body');
   if (!scheduleJobs.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty">No reminders yet. Create one above.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">No reminders yet. Create one above.</td></tr>';
     return;
   }
 
@@ -1552,8 +1577,9 @@ function renderSchedules() {
         <td data-label="When">${escHtml(formatScheduleWhen(job))}</td>
         <td data-label="Contact">${escHtml(contactName)}</td>
         <td data-label="Platforms">${platforms}</td>
+        <td data-label="Timezone">${escHtml(job.timezone || scheduleTimezoneDefault)}</td>
         <td data-label="Idea" class="job-idea" title="${escHtml(job.idea)}">${escHtml(job.idea)}</td>
-        <td data-label="Next run" class="next-run">${escHtml(formatNextRun(job.next_run))}</td>
+        <td data-label="Next run" class="next-run">${escHtml(formatNextRun(job.next_run, job.timezone || scheduleTimezoneDefault))}</td>
         <td data-label="Actions">
           <div class="btn-row">
             <button class="btn btn-secondary btn-sm" onclick="runScheduleNow('${job.id}')">Run now</button>
@@ -1580,6 +1606,7 @@ function resetScheduleForm() {
   document.getElementById('sched-idea').value = '';
   document.getElementById('sched-use-ai').checked = true;
   document.getElementById('sched-profile').value = '';
+  document.getElementById('sched-timezone').value = scheduleTimezoneDefault;
   if (scheduleContacts.length) document.getElementById('sched-contact').value = '0';
   toggleScheduleFields();
 }
@@ -1590,6 +1617,7 @@ function collectSchedulePayload() {
   if (document.getElementById('sched-platform-ig').checked) platforms.push('instagram');
 
   const profile = document.getElementById('sched-profile').value.trim();
+  const timezone = document.getElementById('sched-timezone').value.trim();
   const payload = {
     name: document.getElementById('sched-name').value.trim(),
     schedule_type: document.getElementById('sched-type').value,
@@ -1601,6 +1629,7 @@ function collectSchedulePayload() {
     idea: document.getElementById('sched-idea').value.trim(),
     use_ai: document.getElementById('sched-use-ai').checked,
     profile_name: profile || null,
+    timezone: timezone || scheduleTimezoneDefault,
   };
   return payload;
 }
@@ -1642,6 +1671,7 @@ function editSchedule(id) {
   document.getElementById('sched-idea').value = job.idea;
   document.getElementById('sched-use-ai').checked = !!job.use_ai;
   document.getElementById('sched-profile').value = job.profile_name || '';
+  document.getElementById('sched-timezone').value = job.timezone || scheduleTimezoneDefault;
   toggleScheduleFields();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }

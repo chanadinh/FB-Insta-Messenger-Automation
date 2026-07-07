@@ -21,7 +21,7 @@ from fb_automation.browser import (
     load_profiles, save_profiles, get_active_profile,
 )
 from fb_automation.logger import LOG_PATH, REPLIES_PATH, load_replies, update_reply_status
-from fb_automation.scheduler import JobScheduler
+from fb_automation.scheduler import JobScheduler, list_timezones, get_reminder_timezone_name
 
 engine = AutomationEngine()
 scheduler = JobScheduler(engine)
@@ -146,6 +146,7 @@ class ScheduleCreate(BaseModel):
     idea: str
     use_ai: bool = True
     profile_name: str | None = None
+    timezone: str | None = None
 
 
 class ScheduleUpdate(BaseModel):
@@ -160,6 +161,7 @@ class ScheduleUpdate(BaseModel):
     idea: str | None = None
     use_ai: bool | None = None
     profile_name: str | None = None
+    timezone: str | None = None
 
 
 class ScheduleToggle(BaseModel):
@@ -404,6 +406,15 @@ async def send_reply(idx: int, body: ReplySendRequest):
 
 
 # ── Scheduled reminders ───────────────────────────────────────
+
+@app.get("/api/timezones")
+async def get_timezones():
+    current = get_reminder_timezone_name()
+    zones = list_timezones()
+    if current not in zones:
+        zones = [current, *zones]
+    return {"current": current, "timezones": zones}
+
 
 @app.get("/api/schedules")
 async def list_schedules():

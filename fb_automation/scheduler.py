@@ -9,7 +9,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Callable, Any
-from zoneinfo import available_timezones
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from fb_automation.paths import data_path
 from fb_automation.engine import AutomationEngine
@@ -41,6 +41,17 @@ def get_reminder_timezone_name() -> str:
     return "Local"
 
 
+def _valid_timezone_name(name: str | None) -> str:
+    tz_name = (name or "").strip()
+    if not tz_name or tz_name == "Local":
+        tz_name = get_reminder_timezone_name()
+    try:
+        ZoneInfo(tz_name)
+        return tz_name
+    except ZoneInfoNotFoundError:
+        return "UTC"
+
+
 def _default_store() -> dict:
     return {"jobs": []}
 
@@ -58,28 +69,26 @@ def save_schedules(data: dict) -> None:
     SCHEDULES_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
-def _local_naive(dt: datetime) -> datetime:
-    """Return a timezone-free datetime in the server's local timezone."""
-    if dt.tzinfo is None:
+def _parse_datetime(value: str, timezone_name: str | None = None) -> datetime:
+    """Parse stored ISO datetimes, accepting naive, offset-aware, and Z values."""
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if dt.tzinfo is not None:
         return dt
-    return dt.astimezone().replace(tzinfo=None)
-
-
-def _parse_local_naive(value: str) -> datetime:
-    """Parse stored ISO datetimes, accepting both naive and offset-aware values."""
-    return _local_naive(datetime.fromisoformat(value.replace("Z", "+00:00")))
+    return dt.replace(tzinfo=ZoneInfo(_valid_timezone_name(timezone_name)))
 
 
 def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
-    """Return the next run time for a job (local timezone)."""
-    now = _local_naive(after or datetime.now())
+    """Return the next run time for a job in the job timezone."""
+    tz_name = _valid_timezone_name(job.get("timezone"))
+    tz = ZoneInfo(tz_name)
+    now = after.astimezone(tz) if after and after.tzinfo else (after.replace(tzinfo=tz) if after else datetime.now(tz))
     schedule_type = job.get("schedule_type", "daily")
 
     if schedule_type == "interval":
         hours = max(1, int(job.get("interval_hours", 1)))
         last = job.get("last_run")
         if last:
-            base = _parse_local_naive(last)
+            base = _parse_datetime(last, tz_name).astimezone(tz)
             nxt = base + timedelta(hours=hours)
             return nxt if nxt > now else now
         return now + timedelta(hours=hours)
@@ -114,6 +123,10 @@ def validate_job(job: dict) -> str | None:
     idx = job.get("contact_index")
     if idx is None or not isinstance(idx, int) or idx < 0:
         return "contact_index is required"
+    try:
+        ZoneInfo(_valid_timezone_name(job.get("timezone")))
+    except ZoneInfoNotFoundError:
+        return "Invalid timezone"
     return None
 
 
@@ -132,6 +145,7 @@ def normalize_job(raw: dict, existing: dict | None = None) -> dict:
         "idea": raw.get("idea", base.get("idea", "")).strip(),
         "use_ai": bool(raw.get("use_ai", base.get("use_ai", True))),
         "profile_name": raw.get("profile_name", base.get("profile_name")) or None,
+        "timezone": _valid_timezone_name(raw.get("timezone", base.get("timezone"))),
         "last_run": base.get("last_run"),
         "next_run": base.get("next_run"),
     }
@@ -273,7 +287,7 @@ class JobScheduler:
                 profile_name=job.get("profile_name"),
                 follow_ups=False,
             )
-            now = datetime.now()
+            now = datetime.now(ZoneInfo(_valid_timezone_name(job.get("timezone"))))
             job["last_run"] = now.isoformat(timespec="seconds")
             job["next_run"] = compute_next_run(job, after=now).isoformat(timespec="seconds")
             data = load_schedules()
@@ -305,7 +319,7 @@ class JobScheduler:
             await asyncio.sleep(TICK_SECONDS)
 
     async def _tick(self) -> None:
-        now = _local_naive(datetime.now())
+        now = datetime.now().astimezone()
         for job in self.list_jobs():
             if not job.get("enabled"):
                 continue
@@ -313,5 +327,5 @@ class JobScheduler:
             if not nxt:
                 job = self.update_job(job["id"], {})
                 nxt = job["next_run"]
-            if _parse_local_naive(nxt) <= now:
+            if _parse_datetime(nxt, job.get("timezone")).astimezone() <= now:
                 await self._execute_job(job)
