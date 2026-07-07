@@ -11,11 +11,11 @@ from enum import Enum
 from typing import Callable
 
 from fb_automation.browser import launch_browser, close_browser, CookieAuthError, get_active_profile
-from fb_automation.messenger import send_message, send_follow_up, delay_between_messages
-from fb_automation.instagram import send_ig_message, send_ig_follow_up
+from fb_automation.messenger import send_message, send_follow_up, delay_between_messages, collect_fb_replies
+from fb_automation.instagram import send_ig_message, send_ig_follow_up, collect_ig_replies
 from fb_automation.templates import render_message
 from fb_automation.chatgen import generate_follow_ups
-from fb_automation.logger import log_message
+from fb_automation.logger import log_message, load_message_log, log_reply
 from fb_automation.paths import data_path
 
 CONFIG_PATH = data_path("config.json")
@@ -251,6 +251,95 @@ class AutomationEngine:
 
         return results
 
+    async def collect_replies(
+        self,
+        contacts: list[dict[str, str]] | None = None,
+        platforms: list[str] | None = None,
+        *,
+        profile_name: str | None = None,
+    ) -> dict:
+        """Collect recent visible replies from saved contact threads."""
+        if self.is_busy():
+            raise RuntimeError("Browser automation is busy")
+
+        config = self.load_config()
+        headless = config.get("headless", True)
+        profile = profile_name or get_active_profile()
+        platforms = platforms or ["facebook", "instagram"]
+        contacts = contacts if contacts is not None else self.load_contacts()
+
+        sent_by_url = self._sent_messages_by_url()
+        targets: list[tuple[dict[str, str], str, str]] = []
+        for contact in contacts:
+            fb_url = contact.get("fb_url", "").strip()
+            ig_url = contact.get("ig_url", "").strip()
+            if "facebook" in platforms and fb_url:
+                targets.append((contact, "facebook", fb_url))
+            if "instagram" in platforms and ig_url:
+                targets.append((contact, "instagram", ig_url))
+
+        if not targets:
+            return {"ok": False, "error": "No contact thread URLs to check", "collected": 0, "checked": 0}
+
+        async with self._busy_lock:
+            prev_status = self.state.status
+            self.state.status = Status.RUNNING
+            self._emit("info", f"Collecting replies from {len(targets)} thread(s)...")
+            context = None
+            collected: list[dict[str, str]] = []
+            try:
+                context, _ = await launch_browser(
+                    headless=headless,
+                    need_fb=any(platform == "facebook" for _, platform, _ in targets),
+                    need_ig=any(platform == "instagram" for _, platform, _ in targets),
+                    profile_name=profile,
+                )
+                for contact, platform, url in targets:
+                    tag = "IG" if platform == "instagram" else "FB"
+                    name = f"{contact.get('first_name', '')} {contact.get('last_name', '')}".strip() or url
+                    page = await context.new_page()
+                    try:
+                        self._emit("info", f"[{tag}] Checking replies from {name}")
+                        sent_messages = sent_by_url.get(url, [])
+                        if platform == "instagram":
+                            replies = await collect_ig_replies(page, url, sent_messages, emit=lambda level, msg: self._emit(level, msg))
+                        else:
+                            replies = await collect_fb_replies(page, url, sent_messages)
+
+                        new_count = 0
+                        for reply in replies:
+                            if log_reply(contact, platform, url, reply):
+                                new_count += 1
+                                collected.append({
+                                    "platform": platform,
+                                    "name": name,
+                                    "profile_url": url,
+                                    "reply_text": reply,
+                                })
+                        self._emit("ok" if new_count else "info", f"[{tag}] {name}: {new_count} new repl{'y' if new_count == 1 else 'ies'}")
+                    except Exception as e:
+                        self._emit("error", f"[{tag}] Reply collection failed for {name}: {e}")
+                    finally:
+                        await page.close()
+            finally:
+                if context:
+                    await close_browser(context)
+                self.state.status = prev_status if prev_status != Status.RUNNING else Status.IDLE
+
+        return {"ok": True, "checked": len(targets), "collected": len(collected), "replies": collected}
+
+    @staticmethod
+    def _sent_messages_by_url() -> dict[str, list[str]]:
+        messages: dict[str, list[str]] = {}
+        for row in load_message_log():
+            if row.get("status") not in ("sent", "dry_run"):
+                continue
+            url = (row.get("profile_url") or "").strip()
+            if not url:
+                continue
+            messages.setdefault(url, []).append(row.get("message_preview", ""))
+        return messages
+
     def get_state(self) -> dict:
         return {
             "status": self.state.status.value,
@@ -414,7 +503,7 @@ class AutomationEngine:
                 success = await send_message(page, profile_url, message)
 
             if success:
-                log_message(contact, "sent", f"[{tag}] {message}")
+                log_message({**contact, "profile_url": profile_url}, "sent", f"[{tag}] {message}")
                 self.state.sent += 1
                 self._emit("ok", f"[{tag}] Message sent to {name}")
 
@@ -441,9 +530,9 @@ class AutomationEngine:
                         else:
                             fu_ok = await send_follow_up(page, fu)
                         status = "sent" if fu_ok else "failed"
-                        log_message(contact, status, f"[{tag}] [follow-up {j}] {fu}")
+                        log_message({**contact, "profile_url": profile_url}, status, f"[{tag}] [follow-up {j}] {fu}")
             else:
-                log_message(contact, "failed", f"[{tag}] {message}")
+                log_message({**contact, "profile_url": profile_url}, "failed", f"[{tag}] {message}")
                 self.state.failed += 1
                 self._emit("error", f"[{tag}] Failed to send to {name}")
 

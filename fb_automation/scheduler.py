@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Callable, Any
+from zoneinfo import available_timezones
 
 from fb_automation.paths import data_path
 from fb_automation.engine import AutomationEngine
@@ -17,6 +20,25 @@ SCHEDULES_PATH = data_path("schedules.json")
 TICK_SECONDS = 30
 
 EventCallback = Callable[[dict], None]
+
+
+def list_timezones() -> list[str]:
+    """Return IANA timezone names for reminder scheduling controls."""
+    return sorted(available_timezones())
+
+
+def get_reminder_timezone_name() -> str:
+    """Return the server timezone name used by reminders."""
+    env_tz = os.environ.get("TZ")
+    if env_tz:
+        return env_tz
+    local_tz = datetime.now().astimezone().tzinfo
+    key = getattr(local_tz, "key", None)
+    if key:
+        return key
+    if time.tzname:
+        return time.tzname[0]
+    return "Local"
 
 
 def _default_store() -> dict:

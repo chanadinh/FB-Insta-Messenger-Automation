@@ -532,38 +532,46 @@
 
     #contacts-table-wrap,
     #schedules-table-wrap,
-    #msg-log-wrap {
+    #msg-log-wrap,
+    #replies-table-wrap {
       overflow: visible;
     }
 
     #contacts-table-wrap table,
     #schedules-table-wrap table,
     #msg-log-wrap table,
+    #replies-table-wrap table,
     #contacts-table-wrap thead,
     #schedules-table-wrap thead,
     #msg-log-wrap thead,
+    #replies-table-wrap thead,
     #contacts-table-wrap tbody,
     #schedules-table-wrap tbody,
     #msg-log-wrap tbody,
+    #replies-table-wrap tbody,
     #contacts-table-wrap tr,
     #schedules-table-wrap tr,
     #msg-log-wrap tr,
+    #replies-table-wrap tr,
     #contacts-table-wrap td,
     #schedules-table-wrap td,
-    #msg-log-wrap td {
+    #msg-log-wrap td,
+    #replies-table-wrap td {
       display: block;
       width: 100%;
     }
 
     #contacts-table-wrap thead,
     #schedules-table-wrap thead,
-    #msg-log-wrap thead {
+    #msg-log-wrap thead,
+    #replies-table-wrap thead {
       display: none;
     }
 
     #contacts-table-wrap tr,
     #schedules-table-wrap tr,
-    #msg-log-wrap tr {
+    #msg-log-wrap tr,
+    #replies-table-wrap tr {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -573,7 +581,8 @@
 
     #contacts-table-wrap td,
     #schedules-table-wrap td,
-    #msg-log-wrap td {
+    #msg-log-wrap td,
+    #replies-table-wrap td {
       border-bottom: 1px solid var(--border);
       padding: 10px 12px;
       word-break: break-word;
@@ -581,13 +590,15 @@
 
     #contacts-table-wrap td:last-child,
     #schedules-table-wrap td:last-child,
-    #msg-log-wrap td:last-child {
+    #msg-log-wrap td:last-child,
+    #replies-table-wrap td:last-child {
       border-bottom: none;
     }
 
     #contacts-table-wrap td[data-label]::before,
     #schedules-table-wrap td[data-label]::before,
-    #msg-log-wrap td[data-label]::before {
+    #msg-log-wrap td[data-label]::before,
+    #replies-table-wrap td[data-label]::before {
       content: attr(data-label);
       color: var(--text2);
       display: block;
@@ -666,6 +677,10 @@
     <button data-page="logs" onclick="showPage('logs', this)">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       Message Log
+    </button>
+    <button data-page="replies" onclick="showPage('replies', this)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="m10 9-3 3 3 3"/><path d="M7 12h8"/></svg>
+      Replies
     </button>
   </nav>
 
@@ -931,6 +946,32 @@
         </div>
       </div>
     </div>
+
+    <!-- ─── Replies ───────────────── -->
+    <div id="page-replies" class="page">
+      <h2>Replies</h2>
+      <div class="card">
+        <h3>Collect Replies</h3>
+        <div class="platform-checks" style="margin-bottom: 16px;">
+          <label><input type="checkbox" id="reply-platform-ig" checked> Instagram</label>
+          <label><input type="checkbox" id="reply-platform-fb" checked> Facebook</label>
+        </div>
+        <div class="btn-row">
+          <button id="btn-collect-replies" class="btn btn-primary" onclick="collectReplies()">Collect Replies</button>
+          <button class="btn btn-secondary" onclick="loadReplies()">Refresh</button>
+        </div>
+        <div id="reply-collect-status" style="font-size:13px; color: var(--text2); margin-top: 12px;"></div>
+      </div>
+      <div class="card">
+        <h3>Collected Replies</h3>
+        <div id="replies-table-wrap">
+          <table>
+            <thead><tr><th>Collected</th><th>Platform</th><th>Name</th><th>Reply</th></tr></thead>
+            <tbody id="replies-body"><tr><td colspan="4" class="empty">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -950,6 +991,7 @@ function showPage(name, btn) {
   if (name === 'contacts') loadContacts();
   if (name === 'config') loadConfig();
   if (name === 'logs') loadMessageLog();
+  if (name === 'replies') loadReplies();
   if (name === 'dashboard') loadDashboardContacts();
   if (name === 'schedules') loadSchedulesPage();
 }
@@ -1313,6 +1355,63 @@ async function loadMessageLog() {
       </tr>
     `;
   }).join('');
+}
+
+// ── Replies ───────────────────────────
+
+async function loadReplies() {
+  const replies = await api('/api/replies');
+  const tbody = document.getElementById('replies-body');
+
+  if (!replies.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No replies collected yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = replies.reverse().map(r => {
+    const platform = r.platform === 'facebook' ? 'FB' : 'IG';
+    const platformClass = r.platform === 'facebook' ? 'facebook' : 'instagram';
+    return `
+      <tr>
+        <td data-label="Collected" style="white-space:nowrap; font-size:13px;">${escHtml(r.collected_at || '')}</td>
+        <td data-label="Platform"><span class="platform-badge ${platformClass}">${platform}</span></td>
+        <td data-label="Name">${escHtml(r.first_name || '')} ${escHtml(r.last_name || '')}</td>
+        <td data-label="Reply" style="font-size:13px;">${escHtml(r.reply_text || '')}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function collectReplies() {
+  const btn = document.getElementById('btn-collect-replies');
+  const status = document.getElementById('reply-collect-status');
+  const platforms = [];
+  if (document.getElementById('reply-platform-fb').checked) platforms.push('facebook');
+  if (document.getElementById('reply-platform-ig').checked) platforms.push('instagram');
+
+  if (!platforms.length) {
+    alert('Select at least one platform');
+    return;
+  }
+
+  btn.disabled = true;
+  status.textContent = 'Opening threads and collecting replies...';
+  try {
+    const res = await api('/api/replies/collect', {
+      method: 'POST',
+      body: JSON.stringify({ platforms }),
+    });
+    if (!res.ok) {
+      status.textContent = res.error || 'Reply collection failed';
+      return;
+    }
+    status.textContent = `Checked ${res.checked} thread(s). Collected ${res.collected} new repl${res.collected === 1 ? 'y' : 'ies'}.`;
+    await loadReplies();
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ── Scheduled reminders ────────────────

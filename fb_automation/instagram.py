@@ -331,3 +331,80 @@ async def _type_and_send(page: Page, message: str, emit: EmitFn = None) -> bool:
 
 async def send_ig_follow_up(page: Page, message: str, emit: EmitFn = None) -> bool:
     return await _type_and_send(page, message, emit)
+
+
+async def collect_ig_replies(
+    page: Page,
+    profile_url: str,
+    sent_messages: list[str] | None = None,
+    emit: EmitFn = None,
+) -> list[str]:
+    """Open an Instagram DM thread and return recent visible reply candidates."""
+    url = profile_url.strip()
+    if not _is_direct_thread_url(url):
+        _emit(emit, "warn", "Reply collection needs an Instagram direct thread URL.")
+        return []
+
+    _emit(emit, "info", f"Collecting replies from: {url}")
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    except Exception as e:
+        _emit(emit, "error", f"Failed to open inbox for reply collection: {e}")
+        return []
+
+    if not await _wait_for_inbox(page, emit):
+        return []
+    await _dismiss_ig_dialogs(page)
+    await page.wait_for_timeout(random.randint(1500, 2500))
+
+    return await _collect_visible_thread_text(page, sent_messages or [])
+
+
+async def _collect_visible_thread_text(page: Page, sent_messages: list[str]) -> list[str]:
+    sent_norm = {_normalize_message_text(msg) for msg in sent_messages if msg}
+    ignored = {
+        "",
+        "message",
+        "send",
+        "sent",
+        "reels",
+        "search",
+        "more",
+        "active now",
+        "view profile",
+    }
+    texts = await page.evaluate(
+        """() => Array.from(document.querySelectorAll('main div[dir="auto"], main span[dir="auto"], [role="main"] div[dir="auto"], [role="main"] span[dir="auto"]'))
+          .filter((el) => {
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+          })
+          .map((el) => el.innerText || el.textContent || '')"""
+    )
+
+    replies: list[str] = []
+    seen: set[str] = set()
+    for raw in texts[-80:]:
+        text = " ".join(str(raw).split())
+        norm = _normalize_message_text(text)
+        if len(text) < 2 or len(text) > 1000:
+            continue
+        if norm in ignored or norm in sent_norm:
+            continue
+        if any(norm and norm in sent for sent in sent_norm):
+            continue
+        if norm in seen:
+            continue
+        seen.add(norm)
+        replies.append(text)
+    return replies[-20:]
+
+
+def _normalize_message_text(text: str) -> str:
+    cleaned = text
+    for prefix in ("[IG]", "[FB]"):
+        cleaned = cleaned.replace(prefix, "")
+    if "] " in cleaned and "[follow-up" in cleaned:
+        cleaned = cleaned.split("] ", 1)[1]
+    return " ".join(cleaned.lower().split())

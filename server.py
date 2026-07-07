@@ -20,7 +20,7 @@ from fb_automation.browser import (
     check_session_status, setup_login,
     load_profiles, save_profiles, get_active_profile,
 )
-from fb_automation.logger import LOG_PATH
+from fb_automation.logger import LOG_PATH, REPLIES_PATH
 from fb_automation.scheduler import JobScheduler
 
 engine = AutomationEngine()
@@ -121,6 +121,12 @@ class ProfileSetActive(BaseModel):
 
 class StartRequest(BaseModel):
     contact_indices: list[int] | None = None
+
+
+class ReplyCollectRequest(BaseModel):
+    contact_indices: list[int] | None = None
+    platforms: list[str] = Field(default_factory=lambda: ["facebook", "instagram"])
+    profile_name: str | None = None
 
 
 class ScheduleCreate(BaseModel):
@@ -343,6 +349,33 @@ async def get_message_log():
         return []
     with LOG_PATH.open(newline="") as f:
         return list(csv.DictReader(f))
+
+
+@app.get("/api/replies")
+async def get_replies():
+    if not REPLIES_PATH.exists():
+        return []
+    with REPLIES_PATH.open(newline="") as f:
+        return list(csv.DictReader(f))
+
+
+@app.post("/api/replies/collect")
+async def collect_replies(body: ReplyCollectRequest = ReplyCollectRequest()):
+    if engine.is_busy():
+        return {"ok": False, "error": "Browser automation is busy"}
+    try:
+        contacts = None
+        if body.contact_indices is not None:
+            all_contacts = engine.load_contacts()
+            contacts = [all_contacts[i] for i in body.contact_indices if 0 <= i < len(all_contacts)]
+            if not contacts:
+                return {"ok": False, "error": "No valid contacts selected"}
+        platforms = [p for p in body.platforms if p in ("facebook", "instagram")]
+        if not platforms:
+            return {"ok": False, "error": "Select at least one platform"}
+        return await engine.collect_replies(contacts, platforms, profile_name=body.profile_name)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # ── Scheduled reminders ───────────────────────────────────────

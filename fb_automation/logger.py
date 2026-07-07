@@ -7,13 +7,29 @@ from pathlib import Path
 from fb_automation.paths import data_path
 
 LOG_PATH = data_path("message_log.csv")
+REPLIES_PATH = data_path("reply_log.csv")
 _FIELDNAMES = ["timestamp", "first_name", "last_name", "profile_url", "status", "message_preview"]
+_REPLY_FIELDNAMES = [
+    "collected_at",
+    "platform",
+    "first_name",
+    "last_name",
+    "profile_url",
+    "reply_text",
+]
 
 
 def _ensure_log_file() -> None:
     if not LOG_PATH.exists():
         with LOG_PATH.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=_FIELDNAMES)
+            writer.writeheader()
+
+
+def _ensure_replies_file() -> None:
+    if not REPLIES_PATH.exists():
+        with REPLIES_PATH.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=_REPLY_FIELDNAMES)
             writer.writeheader()
 
 
@@ -48,3 +64,48 @@ def log_message(
                 "message_preview": message_preview[:80],
             }
         )
+
+
+def load_message_log() -> list[dict[str, str]]:
+    if not LOG_PATH.exists():
+        return []
+    with LOG_PATH.open(newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def load_replies() -> list[dict[str, str]]:
+    if not REPLIES_PATH.exists():
+        return []
+    with REPLIES_PATH.open(newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def log_reply(contact: dict[str, str], platform: str, profile_url: str, reply_text: str) -> bool:
+    """Append a collected reply if it is not already in the reply log."""
+    text = " ".join(reply_text.split())
+    if not text:
+        return False
+
+    _ensure_replies_file()
+    existing = load_replies()
+    for row in existing:
+        if (
+            row.get("platform") == platform
+            and row.get("profile_url") == profile_url
+            and row.get("reply_text") == text
+        ):
+            return False
+
+    with REPLIES_PATH.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_REPLY_FIELDNAMES)
+        writer.writerow(
+            {
+                "collected_at": datetime.now().isoformat(timespec="seconds"),
+                "platform": platform,
+                "first_name": contact.get("first_name", ""),
+                "last_name": contact.get("last_name", ""),
+                "profile_url": profile_url,
+                "reply_text": text,
+            }
+        )
+    return True

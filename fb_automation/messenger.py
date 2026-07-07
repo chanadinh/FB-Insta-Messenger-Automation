@@ -145,3 +145,73 @@ async def delay_between_messages(min_sec: int, max_sec: int) -> None:
     wait = random.uniform(min_sec, max_sec)
     print(f"  [WAIT] Sleeping {wait:.0f}s before next message...")
     await asyncio.sleep(wait)
+
+
+async def collect_fb_replies(
+    page: Page,
+    profile_url: str,
+    sent_messages: list[str] | None = None,
+) -> list[str]:
+    """Open a Messenger conversation and return recent visible reply candidates."""
+    user_id = await _extract_user_id(profile_url, page)
+    if not user_id:
+        print(f"  [ERROR] Could not extract user ID from: {profile_url}")
+        return []
+
+    messenger_url = f"{MESSENGER_URL}{user_id}"
+    print(f"  [NAV] Collecting replies from: {messenger_url}")
+
+    try:
+        await page.goto(messenger_url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(random.randint(2500, 4000))
+    except Exception as e:
+        print(f"  [ERROR] Failed to navigate to conversation: {e}")
+        return []
+
+    sent_norm = {_normalize_message_text(msg) for msg in sent_messages or [] if msg}
+    ignored = {
+        "",
+        "message",
+        "send",
+        "sent",
+        "search",
+        "more",
+        "active now",
+        "view profile",
+        "messenger",
+    }
+    texts = await page.evaluate(
+        """() => Array.from(document.querySelectorAll('[role="main"] div[dir="auto"], [role="main"] span[dir="auto"], div[aria-label*="Messages"] div[dir="auto"], div[aria-label*="Messages"] span[dir="auto"]'))
+          .filter((el) => {
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+          })
+          .map((el) => el.innerText || el.textContent || '')"""
+    )
+
+    replies: list[str] = []
+    seen: set[str] = set()
+    for raw in texts[-80:]:
+        text = " ".join(str(raw).split())
+        norm = _normalize_message_text(text)
+        if len(text) < 2 or len(text) > 1000:
+            continue
+        if norm in ignored or norm in sent_norm:
+            continue
+        if any(norm and norm in sent for sent in sent_norm):
+            continue
+        if norm in seen:
+            continue
+        seen.add(norm)
+        replies.append(text)
+    return replies[-20:]
+
+
+def _normalize_message_text(text: str) -> str:
+    cleaned = text
+    for prefix in ("[IG]", "[FB]"):
+        cleaned = cleaned.replace(prefix, "")
+    if "] " in cleaned and "[follow-up" in cleaned:
+        cleaned = cleaned.split("] ", 1)[1]
+    return " ".join(cleaned.lower().split())
