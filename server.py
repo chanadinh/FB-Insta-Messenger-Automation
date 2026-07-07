@@ -147,6 +147,9 @@ class ScheduleCreate(BaseModel):
     use_ai: bool = True
     profile_name: str | None = None
     timezone: str | None = None
+    sleep_enabled: bool = False
+    sleep_start_hour: int = Field(default=22, ge=0, le=23)
+    sleep_end_hour: int = Field(default=7, ge=0, le=23)
 
 
 class ScheduleUpdate(BaseModel):
@@ -162,6 +165,9 @@ class ScheduleUpdate(BaseModel):
     use_ai: bool | None = None
     profile_name: str | None = None
     timezone: str | None = None
+    sleep_enabled: bool | None = None
+    sleep_start_hour: int | None = Field(default=None, ge=0, le=23)
+    sleep_end_hour: int | None = Field(default=None, ge=0, le=23)
 
 
 class ScheduleToggle(BaseModel):

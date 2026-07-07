@@ -77,6 +77,51 @@ def _parse_datetime(value: str, timezone_name: str | None = None) -> datetime:
     return dt.replace(tzinfo=ZoneInfo(_valid_timezone_name(timezone_name)))
 
 
+def _clamp_hour(value: Any, default: int) -> int:
+    try:
+        hour = int(value)
+    except (TypeError, ValueError):
+        hour = default
+    return max(0, min(23, hour))
+
+
+def _sleep_window(job: dict) -> tuple[int, int] | None:
+    if not job.get("sleep_enabled"):
+        return None
+    start = _clamp_hour(job.get("sleep_start_hour"), 22)
+    end = _clamp_hour(job.get("sleep_end_hour"), 7)
+    if start == end:
+        return None
+    return start, end
+
+
+def _in_sleep_window(dt: datetime, start: int, end: int) -> bool:
+    hour = dt.hour
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
+def _sleep_end_after(dt: datetime, start: int, end: int) -> datetime:
+    wake = dt.replace(hour=end, minute=0, second=0, microsecond=0)
+    if start < end:
+        if dt.hour >= start:
+            wake += timedelta(days=1)
+    elif dt.hour >= start:
+        wake += timedelta(days=1)
+    return wake if wake > dt else wake + timedelta(days=1)
+
+
+def apply_sleep_window(job: dict, candidate: datetime) -> datetime:
+    window = _sleep_window(job)
+    if not window:
+        return candidate
+    start, end = window
+    if _in_sleep_window(candidate, start, end):
+        return _sleep_end_after(candidate, start, end)
+    return candidate
+
+
 def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
     """Return the next run time for a job in the job timezone."""
     tz_name = _valid_timezone_name(job.get("timezone"))
@@ -90,8 +135,8 @@ def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
         if last:
             base = _parse_datetime(last, tz_name).astimezone(tz)
             nxt = base + timedelta(hours=hours)
-            return nxt if nxt > now else now
-        return now + timedelta(hours=hours)
+            return apply_sleep_window(job, nxt if nxt > now else now)
+        return apply_sleep_window(job, now + timedelta(hours=hours))
 
     hour = int(job.get("hour", 9))
     minute = int(job.get("minute", 0))
@@ -100,7 +145,7 @@ def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
     candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if candidate <= now:
         candidate += timedelta(days=1)
-    return candidate
+    return apply_sleep_window(job, candidate)
 
 
 def validate_job(job: dict) -> str | None:
@@ -123,6 +168,9 @@ def validate_job(job: dict) -> str | None:
     idx = job.get("contact_index")
     if idx is None or not isinstance(idx, int) or idx < 0:
         return "contact_index is required"
+    if job.get("sleep_enabled"):
+        if _clamp_hour(job.get("sleep_start_hour"), 22) == _clamp_hour(job.get("sleep_end_hour"), 7):
+            return "Sleep start and end cannot be the same hour"
     try:
         ZoneInfo(_valid_timezone_name(job.get("timezone")))
     except ZoneInfoNotFoundError:
@@ -146,6 +194,9 @@ def normalize_job(raw: dict, existing: dict | None = None) -> dict:
         "use_ai": bool(raw.get("use_ai", base.get("use_ai", True))),
         "profile_name": raw.get("profile_name", base.get("profile_name")) or None,
         "timezone": _valid_timezone_name(raw.get("timezone", base.get("timezone"))),
+        "sleep_enabled": bool(raw.get("sleep_enabled", base.get("sleep_enabled", False))),
+        "sleep_start_hour": _clamp_hour(raw.get("sleep_start_hour", base.get("sleep_start_hour", 22)), 22),
+        "sleep_end_hour": _clamp_hour(raw.get("sleep_end_hour", base.get("sleep_end_hour", 7)), 7),
         "last_run": base.get("last_run"),
         "next_run": base.get("next_run"),
     }
@@ -327,5 +378,16 @@ class JobScheduler:
             if not nxt:
                 job = self.update_job(job["id"], {})
                 nxt = job["next_run"]
-            if _parse_datetime(nxt, job.get("timezone")).astimezone() <= now:
+            due = _parse_datetime(nxt, job.get("timezone"))
+            adjusted = apply_sleep_window(job, due)
+            if adjusted > due:
+                data = load_schedules()
+                for i, stored in enumerate(data.get("jobs", [])):
+                    if stored["id"] == job["id"]:
+                        stored["next_run"] = adjusted.isoformat(timespec="seconds")
+                        data["jobs"][i] = stored
+                        save_schedules(data)
+                        break
+                continue
+            if due.astimezone() <= now:
                 await self._execute_job(job)

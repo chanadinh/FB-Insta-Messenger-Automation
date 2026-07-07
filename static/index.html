@@ -915,6 +915,21 @@
           </div>
         </div>
         <div class="form-group">
+          <label><input type="checkbox" id="sched-sleep-enabled" onchange="toggleSleepFields()"> Sleep schedule</label>
+        </div>
+        <div id="sched-sleep-fields" class="schedule-type-fields">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Sleep starts (0–23)</label>
+              <input id="sched-sleep-start" type="number" min="0" max="23" value="22">
+            </div>
+            <div class="form-group">
+              <label>Wake hour (0–23)</label>
+              <input id="sched-sleep-end" type="number" min="0" max="23" value="7">
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
           <label>Platforms</label>
           <div class="platform-checks">
             <label><input type="checkbox" id="sched-platform-ig" checked> Instagram</label>
@@ -946,12 +961,13 @@
                 <th>Contact</th>
                 <th>Platforms</th>
                 <th>Timezone</th>
+                <th>Sleep</th>
                 <th>Idea</th>
                 <th>Next run</th>
                 <th>Actions</th>
               </tr>
             </thead>
-            <tbody id="schedules-body"><tr><td colspan="9" class="empty">Loading...</td></tr></tbody>
+            <tbody id="schedules-body"><tr><td colspan="10" class="empty">Loading...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1490,6 +1506,13 @@ function toggleScheduleFields() {
   document.getElementById('sched-interval-fields').classList.toggle('show', type === 'interval');
 }
 
+function toggleSleepFields() {
+  document.getElementById('sched-sleep-fields').classList.toggle(
+    'show',
+    document.getElementById('sched-sleep-enabled').checked
+  );
+}
+
 function formatScheduleWhen(job) {
   if (job.schedule_type === 'interval') {
     return `Every ${job.interval_hours}h`;
@@ -1497,6 +1520,13 @@ function formatScheduleWhen(job) {
   const h = String(job.hour).padStart(2, '0');
   const m = String(job.minute).padStart(2, '0');
   return `Daily ${h}:${m}`;
+}
+
+function formatSleepWindow(job) {
+  if (!job.sleep_enabled) return 'Off';
+  const start = String(job.sleep_start_hour ?? 22).padStart(2, '0');
+  const end = String(job.sleep_end_hour ?? 7).padStart(2, '0');
+  return `${start}:00-${end}:00`;
 }
 
 function formatNextRun(iso, timezone) {
@@ -1559,7 +1589,7 @@ async function loadSchedules() {
 function renderSchedules() {
   const tbody = document.getElementById('schedules-body');
   if (!scheduleJobs.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty">No reminders yet. Create one above.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="empty">No reminders yet. Create one above.</td></tr>';
     return;
   }
 
@@ -1578,6 +1608,7 @@ function renderSchedules() {
         <td data-label="Contact">${escHtml(contactName)}</td>
         <td data-label="Platforms">${platforms}</td>
         <td data-label="Timezone">${escHtml(job.timezone || scheduleTimezoneDefault)}</td>
+        <td data-label="Sleep">${escHtml(formatSleepWindow(job))}</td>
         <td data-label="Idea" class="job-idea" title="${escHtml(job.idea)}">${escHtml(job.idea)}</td>
         <td data-label="Next run" class="next-run">${escHtml(formatNextRun(job.next_run, job.timezone || scheduleTimezoneDefault))}</td>
         <td data-label="Actions">
@@ -1607,8 +1638,12 @@ function resetScheduleForm() {
   document.getElementById('sched-use-ai').checked = true;
   document.getElementById('sched-profile').value = '';
   document.getElementById('sched-timezone').value = scheduleTimezoneDefault;
+  document.getElementById('sched-sleep-enabled').checked = false;
+  document.getElementById('sched-sleep-start').value = '22';
+  document.getElementById('sched-sleep-end').value = '7';
   if (scheduleContacts.length) document.getElementById('sched-contact').value = '0';
   toggleScheduleFields();
+  toggleSleepFields();
 }
 
 function collectSchedulePayload() {
@@ -1618,6 +1653,7 @@ function collectSchedulePayload() {
 
   const profile = document.getElementById('sched-profile').value.trim();
   const timezone = document.getElementById('sched-timezone').value.trim();
+  const sleepEnabled = document.getElementById('sched-sleep-enabled').checked;
   const payload = {
     name: document.getElementById('sched-name').value.trim(),
     schedule_type: document.getElementById('sched-type').value,
@@ -1630,6 +1666,9 @@ function collectSchedulePayload() {
     use_ai: document.getElementById('sched-use-ai').checked,
     profile_name: profile || null,
     timezone: timezone || scheduleTimezoneDefault,
+    sleep_enabled: sleepEnabled,
+    sleep_start_hour: parseInt(document.getElementById('sched-sleep-start').value, 10) || 22,
+    sleep_end_hour: parseInt(document.getElementById('sched-sleep-end').value, 10) || 7,
   };
   return payload;
 }
@@ -1639,6 +1678,10 @@ async function saveSchedule() {
   if (!payload.name) { alert('Name is required'); return; }
   if (!payload.platforms.length) { alert('Select at least one platform'); return; }
   if (!payload.idea) { alert('Enter your reminder idea'); return; }
+  if (payload.sleep_enabled && payload.sleep_start_hour === payload.sleep_end_hour) {
+    alert('Sleep start and wake hour cannot be the same');
+    return;
+  }
   if (Number.isNaN(payload.contact_index) || payload.contact_index < 0) {
     alert('Select a contact');
     return;
@@ -1672,7 +1715,11 @@ function editSchedule(id) {
   document.getElementById('sched-use-ai').checked = !!job.use_ai;
   document.getElementById('sched-profile').value = job.profile_name || '';
   document.getElementById('sched-timezone').value = job.timezone || scheduleTimezoneDefault;
+  document.getElementById('sched-sleep-enabled').checked = !!job.sleep_enabled;
+  document.getElementById('sched-sleep-start').value = job.sleep_start_hour ?? 22;
+  document.getElementById('sched-sleep-end').value = job.sleep_end_hour ?? 7;
   toggleScheduleFields();
+  toggleSleepFields();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
