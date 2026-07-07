@@ -3,6 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#111827">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Messenger Auto">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/icons/icon-180.png">
 <title>Messenger Automation Dashboard</title>
 <style>
   :root {
@@ -27,6 +34,9 @@
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
+    min-height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .app { display: flex; min-height: 100vh; }
@@ -309,6 +319,94 @@
   .job-row-disabled td { opacity: 0.55; }
   .job-idea { max-width: 280px; font-size: 13px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .next-run { font-size: 12px; color: var(--text2); white-space: nowrap; }
+
+  @media (max-width: 760px) {
+    .app {
+      flex-direction: column;
+      min-height: 100dvh;
+    }
+
+    .sidebar {
+      width: 100%;
+      flex-direction: row;
+      align-items: center;
+      gap: 4px;
+      padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .sidebar .logo {
+      display: none;
+    }
+
+    .sidebar button {
+      width: auto;
+      flex: 0 0 auto;
+      min-width: 44px;
+      justify-content: center;
+      padding: 10px;
+      gap: 0;
+      font-size: 0;
+    }
+
+    .sidebar button svg {
+      flex: 0 0 auto;
+    }
+
+    .main {
+      max-height: none;
+      padding: 18px max(14px, env(safe-area-inset-right)) 28px max(14px, env(safe-area-inset-left));
+    }
+
+    .main h2 {
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .profile-selector,
+    .session-row,
+    .form-row {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .profile-selector select,
+    .new-profile-input input {
+      max-width: none;
+      width: 100%;
+    }
+
+    .new-profile-input {
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    table {
+      min-width: 640px;
+    }
+
+    #contact-checklist table {
+      min-width: 0;
+    }
+
+    #contacts-table-wrap,
+    #schedules-table-wrap,
+    #msg-log-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
 </style>
 </head>
 <body>
@@ -1187,6 +1285,12 @@ loadProfiles();
 loadStatus();
 loadDashboardContacts();
 connectWS();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>

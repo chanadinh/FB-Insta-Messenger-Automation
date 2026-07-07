@@ -162,6 +162,16 @@ async def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/manifest.webmanifest")
+async def manifest():
+    return FileResponse(STATIC_DIR / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/service-worker.js")
+async def service_worker():
+    return FileResponse(STATIC_DIR / "service-worker.js", media_type="application/javascript")
+
+
 @app.get("/api/status")
 async def get_status():
     profile = get_active_profile()
