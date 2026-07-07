@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -37,6 +37,7 @@
     min-height: 100dvh;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
+    overflow-x: hidden;
   }
 
   .app { display: flex; min-height: 100vh; }
@@ -321,9 +322,16 @@
   .next-run { font-size: 12px; color: var(--text2); white-space: nowrap; }
 
   @media (max-width: 760px) {
+    html,
+    body {
+      width: 100%;
+      max-width: 100%;
+    }
+
     .app {
       flex-direction: column;
       min-height: 100dvh;
+      width: 100%;
     }
 
     .sidebar {
@@ -338,6 +346,12 @@
       position: sticky;
       top: 0;
       z-index: 10;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .sidebar::-webkit-scrollbar {
+      display: none;
     }
 
     .sidebar .logo {
@@ -360,7 +374,10 @@
 
     .main {
       max-height: none;
+      width: 100%;
+      min-width: 0;
       padding: 18px max(14px, env(safe-area-inset-right)) 28px max(14px, env(safe-area-inset-left));
+      overflow-x: hidden;
     }
 
     .main h2 {
@@ -371,6 +388,13 @@
     .card {
       padding: 16px;
       margin-bottom: 14px;
+      width: 100%;
+      overflow: hidden;
+      border-radius: 10px;
+    }
+
+    .card h3 {
+      margin-bottom: 12px;
     }
 
     .profile-selector,
@@ -379,6 +403,87 @@
       display: flex;
       flex-direction: column;
       align-items: stretch;
+    }
+
+    .profile-selector {
+      padding: 14px;
+      gap: 8px;
+    }
+
+    .session-row {
+      gap: 8px;
+    }
+
+    .session-row .cookie-bar,
+    .cookie-bar {
+      align-items: flex-start;
+      flex-direction: column;
+      min-width: 0;
+      width: 100%;
+      padding: 12px 14px;
+      gap: 10px;
+    }
+
+    .cookie-bar .btn {
+      align-self: stretch;
+    }
+
+    .btn-row,
+    .select-actions {
+      align-items: stretch;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      width: 100%;
+    }
+
+    .btn-row .status-badge,
+    .select-actions span {
+      grid-column: 1 / -1;
+      justify-content: center;
+    }
+
+    .btn {
+      min-height: 44px;
+      padding: 10px 12px;
+      width: 100%;
+    }
+
+    .btn-sm {
+      min-height: 38px;
+    }
+
+    .stats-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .stat {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 8px;
+    }
+
+    .stat .value {
+      font-size: 26px;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    .form-row {
+      gap: 0;
+    }
+
+    .form-group input,
+    .form-group textarea,
+    .form-group select,
+    .profile-selector select,
+    .new-profile-input input {
+      min-height: 44px;
+      font-size: 16px;
     }
 
     .profile-selector select,
@@ -392,19 +497,148 @@
       flex-wrap: wrap;
     }
 
+    .empty {
+      padding: 24px 12px;
+      width: 100%;
+    }
+
+    .log-viewer {
+      max-height: 300px;
+      padding: 12px;
+      font-size: 12px;
+    }
+
     table {
-      min-width: 640px;
+      min-width: 0;
     }
 
     #contact-checklist table {
+      width: 100%;
       min-width: 0;
+    }
+
+    #contact-checklist td {
+      padding: 10px 8px;
+    }
+
+    #contact-checklist td:nth-child(2) {
+      width: 100%;
+      word-break: break-word;
+    }
+
+    #contact-checklist td:nth-child(3) {
+      white-space: nowrap;
     }
 
     #contacts-table-wrap,
     #schedules-table-wrap,
     #msg-log-wrap {
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
+      overflow: visible;
+    }
+
+    #contacts-table-wrap table,
+    #schedules-table-wrap table,
+    #msg-log-wrap table,
+    #contacts-table-wrap thead,
+    #schedules-table-wrap thead,
+    #msg-log-wrap thead,
+    #contacts-table-wrap tbody,
+    #schedules-table-wrap tbody,
+    #msg-log-wrap tbody,
+    #contacts-table-wrap tr,
+    #schedules-table-wrap tr,
+    #msg-log-wrap tr,
+    #contacts-table-wrap td,
+    #schedules-table-wrap td,
+    #msg-log-wrap td {
+      display: block;
+      width: 100%;
+    }
+
+    #contacts-table-wrap thead,
+    #schedules-table-wrap thead,
+    #msg-log-wrap thead {
+      display: none;
+    }
+
+    #contacts-table-wrap tr,
+    #schedules-table-wrap tr,
+    #msg-log-wrap tr {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    #contacts-table-wrap td,
+    #schedules-table-wrap td,
+    #msg-log-wrap td {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      word-break: break-word;
+    }
+
+    #contacts-table-wrap td:last-child,
+    #schedules-table-wrap td:last-child,
+    #msg-log-wrap td:last-child {
+      border-bottom: none;
+    }
+
+    #contacts-table-wrap td[data-label]::before,
+    #schedules-table-wrap td[data-label]::before,
+    #msg-log-wrap td[data-label]::before {
+      content: attr(data-label);
+      color: var(--text2);
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    #contacts-table-wrap td[data-label="Actions"]::before,
+    #schedules-table-wrap td[data-label="Actions"]::before {
+      display: none;
+    }
+
+    #schedules-table-wrap .btn-row {
+      grid-template-columns: 1fr;
+    }
+
+    .job-idea,
+    .next-run {
+      max-width: none;
+      white-space: normal;
+    }
+
+    #msg-log-wrap td[data-label="Time"],
+    #msg-log-wrap td[data-label="Message"] {
+      max-width: none !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      white-space: normal !important;
+    }
+  }
+
+  @media (max-width: 390px) {
+    .main {
+      padding-left: max(10px, env(safe-area-inset-left));
+      padding-right: max(10px, env(safe-area-inset-right));
+    }
+
+    .card {
+      padding: 14px;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .platform-checks {
+      flex-direction: column;
+      gap: 10px;
     }
   }
 </style>
@@ -979,12 +1213,12 @@ async function loadContacts() {
       : '<span style="color:var(--text2)">-</span>';
     return `
       <tr>
-        <td>${i + 1}</td>
-        <td>${escHtml(c.first_name || '')} ${escHtml(c.last_name || '')}</td>
-        <td>${fbCell}</td>
-        <td>${igCell}</td>
-        <td>${escHtml(c.custom_field || '')}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="deleteContact(${i})">Remove</button></td>
+        <td data-label="#">${i + 1}</td>
+        <td data-label="Name">${escHtml(c.first_name || '')} ${escHtml(c.last_name || '')}</td>
+        <td data-label="Facebook">${fbCell}</td>
+        <td data-label="Instagram">${igCell}</td>
+        <td data-label="Custom">${escHtml(c.custom_field || '')}</td>
+        <td data-label="Actions"><button class="btn btn-danger btn-sm" onclick="deleteContact(${i})">Remove</button></td>
       </tr>
     `;
   }).join('');
@@ -1072,10 +1306,10 @@ async function loadMessageLog() {
     const statusClass = r.status === 'sent' ? 'green' : r.status === 'failed' ? 'red' : 'yellow';
     return `
       <tr>
-        <td style="white-space:nowrap; font-size:13px;">${escHtml(r.timestamp || '')}</td>
-        <td>${escHtml(r.first_name || '')} ${escHtml(r.last_name || '')}</td>
-        <td><span style="color: var(--${statusClass}); font-weight: 600;">${escHtml(r.status || '')}</span></td>
-        <td style="font-size:13px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(r.message_preview || '')}</td>
+        <td data-label="Time" style="white-space:nowrap; font-size:13px;">${escHtml(r.timestamp || '')}</td>
+        <td data-label="Name">${escHtml(r.first_name || '')} ${escHtml(r.last_name || '')}</td>
+        <td data-label="Status"><span style="color: var(--${statusClass}); font-weight: 600;">${escHtml(r.status || '')}</span></td>
+        <td data-label="Message" style="font-size:13px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(r.message_preview || '')}</td>
       </tr>
     `;
   }).join('');
@@ -1157,14 +1391,14 @@ function renderSchedules() {
     const rowClass = job.enabled ? '' : 'job-row-disabled';
     return `
       <tr class="${rowClass}">
-        <td><input type="checkbox" ${job.enabled ? 'checked' : ''} onchange="toggleScheduleEnabled('${job.id}', this.checked)" title="Enable/disable"></td>
-        <td><strong>${escHtml(job.name)}</strong></td>
-        <td>${escHtml(formatScheduleWhen(job))}</td>
-        <td>${escHtml(contactName)}</td>
-        <td>${platforms}</td>
-        <td class="job-idea" title="${escHtml(job.idea)}">${escHtml(job.idea)}</td>
-        <td class="next-run">${escHtml(formatNextRun(job.next_run))}</td>
-        <td>
+        <td data-label="On"><input type="checkbox" ${job.enabled ? 'checked' : ''} onchange="toggleScheduleEnabled('${job.id}', this.checked)" title="Enable/disable"></td>
+        <td data-label="Name"><strong>${escHtml(job.name)}</strong></td>
+        <td data-label="When">${escHtml(formatScheduleWhen(job))}</td>
+        <td data-label="Contact">${escHtml(contactName)}</td>
+        <td data-label="Platforms">${platforms}</td>
+        <td data-label="Idea" class="job-idea" title="${escHtml(job.idea)}">${escHtml(job.idea)}</td>
+        <td data-label="Next run" class="next-run">${escHtml(formatNextRun(job.next_run))}</td>
+        <td data-label="Actions">
           <div class="btn-row">
             <button class="btn btn-secondary btn-sm" onclick="runScheduleNow('${job.id}')">Run now</button>
             <button class="btn btn-secondary btn-sm" onclick="editSchedule('${job.id}')">Edit</button>
