@@ -328,6 +328,66 @@ class AutomationEngine:
 
         return {"ok": True, "checked": len(targets), "collected": len(collected), "replies": collected}
 
+    async def send_reply_to_thread(
+        self,
+        reply_row: dict[str, str],
+        message: str,
+        *,
+        profile_name: str | None = None,
+    ) -> dict:
+        """Send an answer to a previously collected reply row."""
+        if self.is_busy():
+            raise RuntimeError("Browser automation is busy")
+
+        message = message.strip()
+        if not message:
+            return {"ok": False, "error": "Reply message is required"}
+
+        platform = reply_row.get("platform", "")
+        profile_url = reply_row.get("profile_url", "").strip()
+        if platform not in ("facebook", "instagram") or not profile_url:
+            return {"ok": False, "error": "Reply row is missing platform or thread URL"}
+
+        config = self.load_config()
+        headless = config.get("headless", True)
+        profile = profile_name or get_active_profile()
+        tag = "IG" if platform == "instagram" else "FB"
+        name = f"{reply_row.get('first_name', '')} {reply_row.get('last_name', '')}".strip() or profile_url
+
+        async with self._busy_lock:
+            prev_status = self.state.status
+            self.state.status = Status.RUNNING
+            context = None
+            page = None
+            try:
+                self._emit("info", f"[{tag}] Replying to {name}...")
+                context, _ = await launch_browser(
+                    headless=headless,
+                    need_fb=platform == "facebook",
+                    need_ig=platform == "instagram",
+                    profile_name=profile,
+                )
+                page = await context.new_page()
+                if platform == "instagram":
+                    ok = await send_ig_message(page, profile_url, message, emit=lambda level, msg: self._emit(level, msg))
+                else:
+                    ok = await send_message(page, profile_url, message)
+
+                contact = {
+                    "first_name": reply_row.get("first_name", ""),
+                    "last_name": reply_row.get("last_name", ""),
+                    "profile_url": profile_url,
+                }
+                log_message(contact, "sent" if ok else "failed", f"[{tag}] [reply] {message}")
+                self._emit("ok" if ok else "error", f"[{tag}] Reply {'sent' if ok else 'failed'} to {name}")
+                return {"ok": ok}
+            finally:
+                if page:
+                    await page.close()
+                if context:
+                    await close_browser(context)
+                self.state.status = prev_status if prev_status != Status.RUNNING else Status.IDLE
+
     @staticmethod
     def _sent_messages_by_url() -> dict[str, list[str]]:
         messages: dict[str, list[str]] = {}

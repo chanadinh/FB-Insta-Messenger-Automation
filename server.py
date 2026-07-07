@@ -20,7 +20,7 @@ from fb_automation.browser import (
     check_session_status, setup_login,
     load_profiles, save_profiles, get_active_profile,
 )
-from fb_automation.logger import LOG_PATH, REPLIES_PATH
+from fb_automation.logger import LOG_PATH, REPLIES_PATH, load_replies, update_reply_status
 from fb_automation.scheduler import JobScheduler
 
 engine = AutomationEngine()
@@ -126,6 +126,11 @@ class StartRequest(BaseModel):
 class ReplyCollectRequest(BaseModel):
     contact_indices: list[int] | None = None
     platforms: list[str] = Field(default_factory=lambda: ["facebook", "instagram"])
+    profile_name: str | None = None
+
+
+class ReplySendRequest(BaseModel):
+    message: str
     profile_name: str | None = None
 
 
@@ -353,10 +358,7 @@ async def get_message_log():
 
 @app.get("/api/replies")
 async def get_replies():
-    if not REPLIES_PATH.exists():
-        return []
-    with REPLIES_PATH.open(newline="") as f:
-        return list(csv.DictReader(f))
+    return load_replies()
 
 
 @app.post("/api/replies/collect")
@@ -376,6 +378,29 @@ async def collect_replies(body: ReplyCollectRequest = ReplyCollectRequest()):
         return await engine.collect_replies(contacts, platforms, profile_name=body.profile_name)
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/replies/{idx}/send")
+async def send_reply(idx: int, body: ReplySendRequest):
+    if engine.is_busy():
+        return {"ok": False, "error": "Browser automation is busy"}
+    replies = load_replies()
+    if idx < 0 or idx >= len(replies):
+        return {"ok": False, "error": "Reply index out of range"}
+    message = body.message.strip()
+    if not message:
+        return {"ok": False, "error": "Reply message is required"}
+    try:
+        result = await engine.send_reply_to_thread(replies[idx], message, profile_name=body.profile_name)
+        status = "sent" if result.get("ok") else "failed"
+        row = update_reply_status(idx, message, status)
+        return {**result, "reply": row}
+    except Exception as e:
+        try:
+            row = update_reply_status(idx, message, "failed")
+        except Exception:
+            row = replies[idx]
+        return {"ok": False, "error": str(e), "reply": row}
 
 
 # ── Scheduled reminders ───────────────────────────────────────

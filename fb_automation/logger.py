@@ -16,6 +16,9 @@ _REPLY_FIELDNAMES = [
     "last_name",
     "profile_url",
     "reply_text",
+    "outbound_reply",
+    "reply_status",
+    "replied_at",
 ]
 
 
@@ -77,7 +80,8 @@ def load_replies() -> list[dict[str, str]]:
     if not REPLIES_PATH.exists():
         return []
     with REPLIES_PATH.open(newline="") as f:
-        return list(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
+    return [{field: row.get(field, "") for field in _REPLY_FIELDNAMES} for row in rows]
 
 
 def log_reply(contact: dict[str, str], platform: str, profile_url: str, reply_text: str) -> bool:
@@ -106,6 +110,26 @@ def log_reply(contact: dict[str, str], platform: str, profile_url: str, reply_te
                 "last_name": contact.get("last_name", ""),
                 "profile_url": profile_url,
                 "reply_text": text,
+                "outbound_reply": "",
+                "reply_status": "",
+                "replied_at": "",
             }
         )
     return True
+
+
+def update_reply_status(index: int, outbound_reply: str, status: str) -> dict[str, str]:
+    """Update a collected reply row after sending an answer."""
+    replies = load_replies()
+    if index < 0 or index >= len(replies):
+        raise IndexError("Reply index out of range")
+
+    replies[index]["outbound_reply"] = outbound_reply
+    replies[index]["reply_status"] = status
+    replies[index]["replied_at"] = datetime.now().isoformat(timespec="seconds")
+
+    with REPLIES_PATH.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_REPLY_FIELDNAMES)
+        writer.writeheader()
+        writer.writerows(replies)
+    return replies[index]
