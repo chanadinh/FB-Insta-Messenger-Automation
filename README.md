@@ -21,6 +21,20 @@ python server.py
 
 Open **http://127.0.0.1:8000** (or http://localhost:8000). The UI talks to the API and live logs over WebSockets.
 
+The dashboard requires an access token. Set `APP_AUTH_TOKEN` before starting the
+server, or read the automatically generated token from `.dashboard_token` under
+`APP_DATA_DIR` (the current directory by default). In Docker, retrieve it with
+`docker compose exec app cat /data/.dashboard_token`. Sign in at `/login`.
+API clients can send `Authorization: Bearer <token>`. Browser sessions use an
+HttpOnly cookie; changing the token invalidates existing sessions.
+
+Local startup and Docker port publishing bind to `127.0.0.1` by default. For
+remote Docker access, set `BIND_ADDRESS=0.0.0.0` and serve the dashboard through
+HTTPS. Keep the token file private and outside source control.
+
+Run regression tests with `pip install -r requirements-dev.txt` followed by
+`python -m unittest discover -s tests -v`.
+
 ### 2. Browser profiles and login
 
 - Profiles are listed in `profiles.json` (default profile name: `Main`). Each profile uses its own Chromium data under `browser_profile_<slug>/` (e.g. `browser_profile_main/`).

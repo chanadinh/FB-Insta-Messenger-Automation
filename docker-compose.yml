@@ -8,9 +8,10 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${PORT:-8000}:8000"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8000}:8000"
     environment:
       APP_DATA_DIR: /data
+      APP_AUTH_TOKEN: ${APP_AUTH_TOKEN:-}
     shm_size: "2gb"
     volumes:
       - fb-automation-data:/data

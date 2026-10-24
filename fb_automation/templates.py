@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from jinja2 import Template
+from jinja2.sandbox import ImmutableSandboxedEnvironment
+
+_environment = ImmutableSandboxedEnvironment()
+_environment.globals.clear()
 
 
 def render_message(template_str: str, contact: dict[str, str]) -> str:
@@ -9,5 +12,5 @@ def render_message(template_str: str, contact: dict[str, str]) -> str:
     Example template: "Hey {{first_name}}, just checking in about {{custom_field}}!"
     Contact dict keys become template variables.
     """
-    tpl = Template(template_str)
+    tpl = _environment.from_string(template_str)
     return tpl.render(**contact)

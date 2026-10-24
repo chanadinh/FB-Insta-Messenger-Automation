@@ -1,6 +1,5 @@
-const CACHE_NAME = 'messenger-auto-shell-v1';
+const CACHE_NAME = 'messenger-auto-shell-v2';
 const SHELL_ASSETS = [
-  '/',
   '/manifest.webmanifest',
   '/static/icons/icon-180.png',
   '/static/icons/icon-192.png',
@@ -27,7 +26,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
-  if (url.origin !== location.origin || url.pathname.startsWith('/api/') || url.pathname === '/ws') {
+  if (url.origin !== location.origin || !SHELL_ASSETS.includes(url.pathname)) {
     return;
   }
 
@@ -38,6 +37,6 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/')))
+      .catch(() => caches.match(event.request))
   );
 });

@@ -13,6 +13,11 @@ venv
 .idea
 
 # Runtime data — mount a volume at /data instead
+.dashboard_token
+reply_log.csv
+schedules.json
+debug/
+*_session.json
 browser_profile*
 cookies.json
 config.json
