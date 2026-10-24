@@ -570,7 +570,8 @@ class AutomationEngine:
                 if api_key and follow_up_count > 0:
                     self._emit("info", f"[{tag}] Generating {follow_up_count} follow-ups for {name}...")
                     try:
-                        follow_ups = generate_follow_ups(
+                        follow_ups = await asyncio.to_thread(
+                            generate_follow_ups,
                             message, name, api_key,
                             model=openai_model,
                             num_messages=follow_up_count,
