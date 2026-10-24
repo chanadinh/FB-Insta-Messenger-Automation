@@ -306,7 +306,7 @@ class JobScheduler:
         return render_message(idea, contact)
 
     async def _execute_job(self, job: dict, *, force: bool = False) -> dict:
-        if self._running_job_id and not force:
+        if self._running_job_id:
             self._emit("warn", f"Skipped '{job['name']}' — another scheduled job is running")
             return {"ok": False, "error": "busy"}
 
@@ -321,16 +321,10 @@ class JobScheduler:
             return {"ok": False, "error": "invalid_contact"}
 
         contact = contacts[idx]
-        try:
-            message = self._resolve_message(job, contact)
-        except Exception as e:
-            self._emit("error", f"Job '{job['name']}' — could not build message: {e}")
-            return {"ok": False, "error": str(e)}
-
         self._running_job_id = job["id"]
-        self._emit("info", f"[Schedule] Running '{job['name']}': \"{message[:60]}...\"" if len(message) > 60 else f"[Schedule] Running '{job['name']}': \"{message}\"")
-
         try:
+            message = await asyncio.to_thread(self._resolve_message, job, contact)
+            self._emit("info", f"[Schedule] Running '{job['name']}': {message[:60]}")
             results = await self.engine.send_to_contact(
                 contact,
                 message,
