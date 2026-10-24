@@ -104,10 +104,7 @@ def _in_sleep_window(dt: datetime, start: int, end: int) -> bool:
 
 def _sleep_end_after(dt: datetime, start: int, end: int) -> datetime:
     wake = dt.replace(hour=end, minute=0, second=0, microsecond=0)
-    if start < end:
-        if dt.hour >= start:
-            wake += timedelta(days=1)
-    elif dt.hour >= start:
+    if start > end and dt.hour >= start:
         wake += timedelta(days=1)
     return wake if wake > dt else wake + timedelta(days=1)
 
@@ -378,9 +375,11 @@ class JobScheduler:
             if not nxt:
                 job = self.update_job(job["id"], {})
                 nxt = job["next_run"]
-            due = _parse_datetime(nxt, job.get("timezone"))
-            adjusted = apply_sleep_window(job, due)
-            if adjusted > due:
+            tz = ZoneInfo(_valid_timezone_name(job.get("timezone")))
+            due = _parse_datetime(nxt, job.get("timezone")).astimezone(tz)
+            candidate = max(due, now.astimezone(tz))
+            adjusted = apply_sleep_window(job, candidate)
+            if adjusted > candidate:
                 data = load_schedules()
                 for i, stored in enumerate(data.get("jobs", [])):
                     if stored["id"] == job["id"]:
