@@ -234,7 +234,7 @@ async def update_contact(idx: int, contact: ContactModel):
     contacts = engine.load_contacts()
     if idx < 0 or idx >= len(contacts):
         return {"ok": False, "error": "Index out of range"}
-    contacts[idx] = contact.model_dump()
+    contacts[idx] = {**contact.model_dump(), "id": contacts[idx]["id"]}
     engine.save_contacts(contacts)
     return {"ok": True}
 
@@ -244,6 +244,7 @@ async def delete_contact(idx: int):
     contacts = engine.load_contacts()
     if idx < 0 or idx >= len(contacts):
         return {"ok": False, "error": "Index out of range"}
+    scheduler.list_jobs()  # Persist stable IDs for legacy reminders before rows shift.
     removed = contacts.pop(idx)
     engine.save_contacts(contacts)
     return {"ok": True, "removed": removed}

@@ -189,6 +189,7 @@ def normalize_job(raw: dict, existing: dict | None = None) -> dict:
         "minute": int(raw.get("minute", base.get("minute", 0))),
         "interval_hours": int(raw.get("interval_hours", base.get("interval_hours", 4))),
         "contact_index": int(raw.get("contact_index", base.get("contact_index", 0))),
+        "contact_id": raw.get("contact_id", base.get("contact_id")),
         "platforms": list(raw.get("platforms", base.get("platforms", ["instagram"]))),
         "idea": raw.get("idea", base.get("idea", "")).strip(),
         "use_ai": bool(raw.get("use_ai", base.get("use_ai", True))),
@@ -242,7 +243,27 @@ class JobScheduler:
             self._task = None
 
     def list_jobs(self) -> list[dict]:
-        return load_schedules().get("jobs", [])
+        data = load_schedules()
+        jobs = data.get("jobs", [])
+        contacts = self.engine.load_contacts()
+        changed = False
+        for job in jobs:
+            if not job.get("contact_id"):
+                idx = job.get("contact_index", -1)
+                if 0 <= idx < len(contacts):
+                    job["contact_id"] = contacts[idx]["id"]
+                    changed = True
+        if changed:
+            save_schedules(data)
+        indices = {contact["id"]: i for i, contact in enumerate(contacts)}
+        return [{**job, "contact_index": indices.get(job.get("contact_id"), -1)} for job in jobs]
+
+    def _bind_contact(self, raw: dict) -> dict:
+        contacts = self.engine.load_contacts()
+        idx = raw.get("contact_index", -1)
+        if not isinstance(idx, int) or not 0 <= idx < len(contacts):
+            raise ValueError("Contact not found")
+        return {**raw, "contact_id": contacts[idx]["id"]}
 
     def get_job(self, job_id: str) -> dict | None:
         for job in self.list_jobs():
@@ -251,7 +272,7 @@ class JobScheduler:
         return None
 
     def create_job(self, raw: dict) -> dict:
-        job = normalize_job(raw)
+        job = normalize_job(self._bind_contact(raw))
         err = validate_job(job)
         if err:
             raise ValueError(err)
@@ -261,6 +282,9 @@ class JobScheduler:
         return job
 
     def update_job(self, job_id: str, raw: dict) -> dict:
+        self.list_jobs()  # Bind legacy jobs before their row indices can change.
+        if "contact_index" in raw:
+            raw = self._bind_contact(raw)
         data = load_schedules()
         jobs = data.get("jobs", [])
         for i, existing in enumerate(jobs):
@@ -315,9 +339,10 @@ class JobScheduler:
             return {"ok": False, "error": "engine_busy"}
 
         contacts = self.engine.load_contacts()
-        idx = job["contact_index"]
-        if idx >= len(contacts):
-            self._emit("error", f"Job '{job['name']}' — contact index {idx} out of range")
+        contact_id = job.get("contact_id")
+        idx = next((i for i, row in enumerate(contacts) if contact_id and row.get("id") == contact_id), -1)
+        if idx < 0:
+            self._emit("error", f"Job '{job['name']}' — saved contact no longer exists")
             return {"ok": False, "error": "invalid_contact"}
 
         contact = contacts[idx]
