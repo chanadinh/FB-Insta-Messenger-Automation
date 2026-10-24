@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -20,7 +21,7 @@ from fb_automation.paths import data_path
 
 CONFIG_PATH = data_path("config.json")
 CONTACTS_PATH = data_path("contacts.csv")
-CONTACTS_FIELDS = ["first_name", "last_name", "fb_url", "ig_url", "custom_field"]
+CONTACTS_FIELDS = ["id", "first_name", "last_name", "fb_url", "ig_url", "custom_field"]
 
 DEFAULT_CONFIG = {
     "message_template": "Hey {{first_name}}, just wanted to reach out!",
@@ -109,14 +110,22 @@ class AutomationEngine:
         if not CONTACTS_PATH.exists():
             return []
         with CONTACTS_PATH.open(newline="") as f:
-            return list(csv.DictReader(f))
+            contacts = list(csv.DictReader(f))
+        if any(not contact.get("id") for contact in contacts):
+            AutomationEngine.save_contacts(contacts)
+            with CONTACTS_PATH.open(newline="") as f:
+                contacts = list(csv.DictReader(f))
+        return contacts
 
     @staticmethod
     def save_contacts(contacts: list[dict[str, str]]) -> None:
         if not contacts:
             CONTACTS_PATH.write_text(",".join(CONTACTS_FIELDS) + "\n")
             return
-        fieldnames = CONTACTS_FIELDS
+        for contact in contacts:
+            if not contact.get("id"):
+                contact["id"] = str(uuid.uuid4())
+        fieldnames = list(dict.fromkeys(CONTACTS_FIELDS + [key for row in contacts for key in row]))
         with CONTACTS_PATH.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()

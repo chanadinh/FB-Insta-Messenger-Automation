@@ -38,6 +38,11 @@ John,Doe,https://www.facebook.com/messages/t/...,https://www.instagram.com/direc
 
 - Include **fb_url** and/or **ig_url** (Messenger / Instagram DM thread URLs). Rows with neither URL are skipped.
 - Extra columns can be referenced in the message template.
+- The dashboard adds a persistent `id` column to existing contact CSVs while
+  preserving extra columns. Keep these IDs when editing the file: reminders use
+  them to retain the correct recipient when rows move. Reminders for deleted
+  contacts stop sending until another contact is selected. Legacy reminders are
+  bound to IDs before contacts are removed through the dashboard.
 
 ### 4. Config — `config.json`
 
