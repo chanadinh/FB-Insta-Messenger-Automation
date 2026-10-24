@@ -11,6 +11,7 @@ from typing import Callable
 from playwright.async_api import Page
 
 from fb_automation.paths import data_path
+from fb_automation.reply_filter import normalize_message_text as _normalize_message_text, matches_sent_message
 
 INSTAGRAM_URL = "https://www.instagram.com"
 NEW_DM_URL = f"{INSTAGRAM_URL}/direct/new/"
@@ -361,7 +362,6 @@ async def collect_ig_replies(
 
 
 async def _collect_visible_thread_text(page: Page, sent_messages: list[str]) -> list[str]:
-    sent_norm = {_normalize_message_text(msg) for msg in sent_messages if msg}
     ignored = {
         "",
         "message",
@@ -390,21 +390,10 @@ async def _collect_visible_thread_text(page: Page, sent_messages: list[str]) -> 
         norm = _normalize_message_text(text)
         if len(text) < 2 or len(text) > 1000:
             continue
-        if norm in ignored or norm in sent_norm:
-            continue
-        if any(norm and norm in sent for sent in sent_norm):
+        if norm in ignored or matches_sent_message(text, sent_messages):
             continue
         if norm in seen:
             continue
         seen.add(norm)
         replies.append(text)
     return replies[-20:]
-
-
-def _normalize_message_text(text: str) -> str:
-    cleaned = text
-    for prefix in ("[IG]", "[FB]"):
-        cleaned = cleaned.replace(prefix, "")
-    if "] " in cleaned and "[follow-up" in cleaned:
-        cleaned = cleaned.split("] ", 1)[1]
-    return " ".join(cleaned.lower().split())

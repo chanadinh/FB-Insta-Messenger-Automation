@@ -392,12 +392,12 @@ class AutomationEngine:
     def _sent_messages_by_url() -> dict[str, list[str]]:
         messages: dict[str, list[str]] = {}
         for row in load_message_log():
-            if row.get("status") not in ("sent", "dry_run"):
+            if row.get("status") != "sent":
                 continue
             url = (row.get("profile_url") or "").strip()
             if not url:
                 continue
-            messages.setdefault(url, []).append(row.get("message_preview", ""))
+            messages.setdefault(url, []).append(row.get("message_text") or row.get("message_preview", ""))
         return messages
 
     def get_state(self) -> dict:

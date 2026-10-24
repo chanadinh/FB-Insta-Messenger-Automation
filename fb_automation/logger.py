@@ -8,7 +8,7 @@ from fb_automation.paths import data_path
 
 LOG_PATH = data_path("message_log.csv")
 REPLIES_PATH = data_path("reply_log.csv")
-_FIELDNAMES = ["timestamp", "first_name", "last_name", "profile_url", "status", "message_preview"]
+_FIELDNAMES = ["timestamp", "first_name", "last_name", "profile_url", "status", "message_preview", "message_text"]
 _REPLY_FIELDNAMES = [
     "collected_at",
     "platform",
@@ -27,6 +27,19 @@ def _ensure_log_file() -> None:
         with LOG_PATH.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=_FIELDNAMES)
             writer.writeheader()
+    else:
+        with LOG_PATH.open(newline="") as f:
+            reader = csv.DictReader(f)
+            if "message_text" in (reader.fieldnames or []):
+                return
+            rows = list(reader)
+        # Preserve existing history when extending the CSV schema.
+        temporary = LOG_PATH.with_suffix(".csv.tmp")
+        with temporary.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=_FIELDNAMES, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+        temporary.replace(LOG_PATH)
 
 
 def _ensure_replies_file() -> None:
@@ -65,6 +78,7 @@ def log_message(
                 "profile_url": contact.get("profile_url", ""),
                 "status": status,
                 "message_preview": message_preview[:80],
+                "message_text": message_preview,
             }
         )
 
