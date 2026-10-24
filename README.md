@@ -85,6 +85,13 @@ For the same `fb_url` / `ig_url` format as the dashboard, use `server.py` and th
 4. If an OpenAI key is configured, generates follow-ups and sends them with delays between follow-ups (**follow_up_delay_min** / **follow_up_delay_max**).
 5. Logs attempts to **`message_log.csv`**; the dashboard streams logs over **`/ws`**.
 
+The message log stores an 80-character `message_preview` and the complete
+`message_text`. Reply collection uses the complete text to exclude known outgoing
+messages; older CSV logs are migrated on the next write and retain their previews.
+For truncated historical previews, matching uses the known prefix. This remains
+a visible-text heuristic: messages sent outside this app cannot reliably be
+identified as outgoing without platform sender metadata.
+
 ### 6. Scheduled reminders
 
 Open the **Reminders** tab in the dashboard (or use **`/api/schedules`**). Create a job with:
