@@ -99,15 +99,16 @@ class ContactModel(BaseModel):
 
 class ConfigUpdate(BaseModel):
     message_template: str | None = None
-    min_delay_seconds: int | None = None
-    max_delay_seconds: int | None = None
+    min_delay_seconds: int | None = Field(default=None, ge=0, le=86400)
+    max_delay_seconds: int | None = Field(default=None, ge=0, le=86400)
+    max_concurrent_contacts: int | None = Field(default=None, ge=1, le=10)
     headless: bool | None = None
     dry_run: bool | None = None
     openai_api_key: str | None = None
     openai_model: str | None = None
-    follow_up_count: int | None = None
-    follow_up_delay_min: int | None = None
-    follow_up_delay_max: int | None = None
+    follow_up_count: int | None = Field(default=None, ge=0, le=20)
+    follow_up_delay_min: int | None = Field(default=None, ge=0, le=86400)
+    follow_up_delay_max: int | None = Field(default=None, ge=0, le=86400)
     chat_tone: str | None = None
 
 
@@ -212,6 +213,10 @@ async def update_config(update: ConfigUpdate):
     config = engine.load_config()
     changes = update.model_dump(exclude_none=True)
     config.update(changes)
+    if config["min_delay_seconds"] > config["max_delay_seconds"]:
+        return {"ok": False, "error": "Minimum contact delay cannot exceed maximum delay"}
+    if config["follow_up_delay_min"] > config["follow_up_delay_max"]:
+        return {"ok": False, "error": "Minimum follow-up delay cannot exceed maximum delay"}
     engine.save_config(config)
     return {"ok": True, "config": config}
 

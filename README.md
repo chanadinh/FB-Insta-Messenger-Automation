@@ -59,6 +59,10 @@ John,Doe,https://www.facebook.com/messages/t/...,https://www.instagram.com/direc
 
 - **openai_api_key** (optional): if set, the engine generates follow-up messages after a successful send; **follow_up_*** and **chat_tone** control count, spacing, and style.
 - **dry_run**: log what would be sent without opening a browser (no login required).
+- **min_delay_seconds / max_delay_seconds**: randomized spacing between contacts
+  in dashboard runs. **max_concurrent_contacts** caps active contacts (default 2,
+  maximum 10); each contact can use one tab per platform. Stop interrupts pending
+  contact and follow-up delays. Set **follow_up_count** to 0 to disable follow-ups.
 
 ### 5. Run automation
 

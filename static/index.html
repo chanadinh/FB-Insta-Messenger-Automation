@@ -1345,7 +1345,7 @@ async function loadConfig() {
   document.getElementById('cfg-api-key').value = '';
   document.getElementById('cfg-api-key').placeholder = c.openai_api_key || 'sk-...';
   document.getElementById('cfg-model').value = c.openai_model || '';
-  document.getElementById('cfg-fu-count').value = c.follow_up_count || 3;
+  document.getElementById('cfg-fu-count').value = c.follow_up_count ?? 3;
   document.getElementById('cfg-tone').value = c.chat_tone || '';
   document.getElementById('cfg-headless').checked = !!c.headless;
   document.getElementById('cfg-dry-run').checked = !!c.dry_run;
@@ -1359,7 +1359,7 @@ async function saveConfig() {
     follow_up_delay_min: parseInt(document.getElementById('cfg-fu-min').value) || 5,
     follow_up_delay_max: parseInt(document.getElementById('cfg-fu-max').value) || 15,
     openai_model: document.getElementById('cfg-model').value,
-    follow_up_count: parseInt(document.getElementById('cfg-fu-count').value) || 3,
+    follow_up_count: parseInt(document.getElementById('cfg-fu-count').value, 10) || 0,
     chat_tone: document.getElementById('cfg-tone').value,
     headless: document.getElementById('cfg-headless').checked,
     dry_run: document.getElementById('cfg-dry-run').checked,
@@ -1368,7 +1368,8 @@ async function saveConfig() {
   const apiKey = document.getElementById('cfg-api-key').value.trim();
   if (apiKey) update.openai_api_key = apiKey;
 
-  await api('/api/config', { method: 'PUT', body: JSON.stringify(update) });
+  const result = await api('/api/config', { method: 'PUT', body: JSON.stringify(update) });
+  if (!result.ok) { alert(result.error || 'Could not save settings'); return; }
   alert('Settings saved!');
 }
 

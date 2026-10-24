@@ -8,6 +8,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from random import uniform
 from typing import Callable
 
 from fb_automation.browser import launch_browser, close_browser, CookieAuthError, get_active_profile
@@ -26,6 +27,7 @@ DEFAULT_CONFIG = {
     "message_template": "Hey {{first_name}}, just wanted to reach out!",
     "min_delay_seconds": 30,
     "max_delay_seconds": 90,
+    "max_concurrent_contacts": 2,
     "headless": True,
     "dry_run": False,
     "openai_api_key": "",
@@ -414,6 +416,15 @@ class AutomationEngine:
 
     # ── Main loop (parallel) ─────────────────────────────────────
 
+    async def _wait_or_stop(self, seconds: float) -> bool:
+        if seconds <= 0:
+            return self._stop_event.is_set()
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
     async def _run_locked(self, contacts: list[dict[str, str]]) -> None:
         config = self.load_config()
         template = config["message_template"]
@@ -431,6 +442,7 @@ class AutomationEngine:
         self._emit("info", "Mode: 2 tabs per contact (Facebook + Instagram)")
 
         context = None
+        tasks: list[asyncio.Task] = []
         try:
             if not dry_run:
                 profile = get_active_profile()
@@ -443,13 +455,30 @@ class AutomationEngine:
             else:
                 context = None
 
-            tasks = []
+            limit = max(1, min(10, int(config.get("max_concurrent_contacts", 2))))
+            slots = asyncio.Semaphore(limit)
+
+            async def process(index, contact):
+                try:
+                    await self._process_contact(
+                        index, contact, context, template, dry_run,
+                        api_key, openai_model, follow_up_count,
+                        fu_delay_min, fu_delay_max, chat_tone,
+                    )
+                finally:
+                    slots.release()
+
             for i, contact in enumerate(contacts, 1):
-                tasks.append(self._process_contact(
-                    i, contact, context, template, dry_run,
-                    api_key, openai_model, follow_up_count,
-                    fu_delay_min, fu_delay_max, chat_tone,
-                ))
+                if self._stop_event.is_set():
+                    break
+                if i > 1 and not dry_run:
+                    if await self._wait_or_stop(uniform(config["min_delay_seconds"], config["max_delay_seconds"])):
+                        break
+                await slots.acquire()
+                if self._stop_event.is_set():
+                    slots.release()
+                    break
+                tasks.append(asyncio.create_task(process(i, contact)))
 
             await asyncio.gather(*tasks)
 
@@ -460,6 +489,11 @@ class AutomationEngine:
             self.state.error = str(e)
             self._emit("error", f"Unexpected error: {e}")
         finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
             if context:
                 await close_browser(context)
             if self.state.status != Status.ERROR:
@@ -553,6 +587,8 @@ class AutomationEngine:
         success = False
 
         try:
+            if self._stop_event.is_set():
+                return False
             self._emit("info", f"[{tag}] Sending to {name}...")
 
             emit = lambda level, msg: self._emit(level, msg)
@@ -583,7 +619,8 @@ class AutomationEngine:
                     for j, fu in enumerate(follow_ups, 1):
                         if self._stop_event.is_set():
                             break
-                        await delay_between_messages(fu_delay_min, fu_delay_max)
+                        if await self._wait_or_stop(uniform(fu_delay_min, fu_delay_max)):
+                            break
                         self._emit("info", f"[{tag}] Follow-up {j}/{len(follow_ups)} to {name}")
                         if platform == "instagram":
                             fu_ok = await send_ig_follow_up(page, fu, emit=emit)
