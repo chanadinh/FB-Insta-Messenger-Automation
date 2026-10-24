@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Callable
 
-from fb_automation.browser import launch_browser, close_browser, CookieAuthError, get_active_profile
+from fb_automation.browser import launch_browser, close_browser, CookieAuthError, get_active_profile, is_browser_busy
 from fb_automation.messenger import send_message, send_follow_up, delay_between_messages, collect_fb_replies
 from fb_automation.instagram import send_ig_message, send_ig_follow_up, collect_ig_replies
 from fb_automation.templates import render_message
@@ -69,7 +69,7 @@ class AutomationEngine:
         self._busy_lock = asyncio.Lock()
 
     def is_busy(self) -> bool:
-        return self._busy_lock.locked()
+        return self._busy_lock.locked() or is_browser_busy()
 
     def on_log(self, callback: LogCallback) -> None:
         self._log_callbacks.append(callback)
