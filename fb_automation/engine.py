@@ -360,6 +360,13 @@ class AutomationEngine:
             context = None
             page = None
             try:
+                if config.get("dry_run", False):
+                    self._emit("info", f"[DRY RUN] [{tag}] Would reply to {name}: {message}")
+                    log_message(
+                        {**reply_row, "profile_url": profile_url},
+                        "dry_run", f"[{tag}] [reply] {message}",
+                    )
+                    return {"ok": True, "dry_run": True}
                 self._emit("info", f"[{tag}] Replying to {name}...")
                 context, _ = await launch_browser(
                     headless=headless,

@@ -400,7 +400,7 @@ async def send_reply(idx: int, body: ReplySendRequest):
         return {"ok": False, "error": "Reply message is required"}
     try:
         result = await engine.send_reply_to_thread(replies[idx], message, profile_name=body.profile_name)
-        status = "sent" if result.get("ok") else "failed"
+        status = "dry_run" if result.get("dry_run") else ("sent" if result.get("ok") else "failed")
         row = update_reply_status(idx, message, status)
         return {**result, "reply": row}
     except Exception as e:
