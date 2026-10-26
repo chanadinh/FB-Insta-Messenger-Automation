@@ -129,6 +129,11 @@ def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
     now = after.astimezone(tz) if after and after.tzinfo else (after.replace(tzinfo=tz) if after else datetime.now(tz))
     schedule_type = job.get("schedule_type", "daily")
 
+    if schedule_type == "once":
+        run_at = job.get("run_at")
+        if not run_at:
+            return now
+        return _parse_datetime(run_at, tz_name)
     if schedule_type == "interval":
         hours = max(1, int(job.get("interval_hours", 1)))
         last = job.get("last_run")
@@ -151,8 +156,15 @@ def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
 def validate_job(job: dict) -> str | None:
     if not job.get("name", "").strip():
         return "Name is required"
-    if job.get("schedule_type") not in ("daily", "interval"):
-        return "schedule_type must be 'daily' or 'interval'"
+    if job.get("schedule_type") not in ("daily", "interval", "once"):
+        return "schedule_type must be 'daily', 'interval', or 'once'"
+    if job.get("schedule_type") == "once":
+        if not job.get("run_at"):
+            return "run_at is required for one-time schedules"
+        try:
+            _parse_datetime(job["run_at"], job.get("timezone"))
+        except (TypeError, ValueError):
+            return "run_at must be a valid ISO datetime"
     if job.get("schedule_type") == "interval":
         hours = job.get("interval_hours", 0)
         if not isinstance(hours, (int, float)) or hours < 1:
@@ -188,6 +200,7 @@ def normalize_job(raw: dict, existing: dict | None = None) -> dict:
         "hour": int(raw.get("hour", base.get("hour", 9))),
         "minute": int(raw.get("minute", base.get("minute", 0))),
         "interval_hours": int(raw.get("interval_hours", base.get("interval_hours", 4))),
+        "run_at": raw.get("run_at", base.get("run_at")),
         "contact_index": int(raw.get("contact_index", base.get("contact_index", 0))),
         "platforms": list(raw.get("platforms", base.get("platforms", ["instagram"]))),
         "idea": raw.get("idea", base.get("idea", "")).strip(),
@@ -340,7 +353,11 @@ class JobScheduler:
             )
             now = datetime.now(ZoneInfo(_valid_timezone_name(job.get("timezone"))))
             job["last_run"] = now.isoformat(timespec="seconds")
-            job["next_run"] = compute_next_run(job, after=now).isoformat(timespec="seconds")
+            if job.get("schedule_type") == "once":
+                job["enabled"] = False
+                job["next_run"] = None
+            else:
+                job["next_run"] = compute_next_run(job, after=now).isoformat(timespec="seconds")
             data = load_schedules()
             for i, j in enumerate(data.get("jobs", [])):
                 if j["id"] == job["id"]:

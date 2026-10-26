@@ -152,11 +152,10 @@ async def _type_and_send_current_thread(page: Page, message: str, emit: EmitFn =
         await page.wait_for_timeout(random.randint(500, 1000))
         await page.keyboard.insert_text(message)
         await page.wait_for_timeout(random.randint(800, 1500))
-        await page.keyboard.press("Enter")
-        await page.wait_for_timeout(1500)
 
+        before_count = await page.get_by_text(message, exact=True).count()
+        clicked_send = False
         for sel in (
-            'div[aria-label="Press Enter to send"]',
             'div[aria-label="Send"]',
             'div[aria-label*="Send"]',
             'div[role="button"]:has-text("Send")',
@@ -167,11 +166,32 @@ async def _type_and_send_current_thread(page: Page, message: str, emit: EmitFn =
                 btn = await page.query_selector(sel)
                 if btn and await btn.is_visible():
                     await btn.click()
+                    clicked_send = True
                     break
             except Exception:
                 continue
 
-        await page.wait_for_timeout(random.randint(2000, 3000))
+        if not clicked_send:
+            await page.keyboard.press("Enter")
+
+        deadline = asyncio.get_running_loop().time() + 6
+        delivered = False
+        while asyncio.get_running_loop().time() < deadline:
+            await page.wait_for_timeout(500)
+            try:
+                composer_text = await input_box.text_content()
+                composer_value = await input_box.get_attribute("value")
+                current_count = await page.get_by_text(message, exact=True).count()
+                if (composer_text or composer_value or "").strip() == "" and current_count > before_count:
+                    delivered = True
+                    break
+            except Exception:
+                break
+
+        if not delivered:
+            _emit(emit, "error", "Facebook did not confirm that the message was sent.")
+            await _save_debug(page, "fb_send_unconfirmed")
+            return False
         _emit(emit, "ok", "Message sent.")
         return True
     except Exception as e:
@@ -259,22 +279,27 @@ async def collect_fb_replies(
         "view profile",
         "messenger",
     }
-    texts = await page.evaluate(
-        """() => Array.from(document.querySelectorAll('[role="main"] div[dir="auto"], [role="main"] span[dir="auto"], div[aria-label*="Messages"] div[dir="auto"], div[aria-label*="Messages"] span[dir="auto"]'))
+    messages = await page.evaluate(
+        """() => Array.from(document.querySelectorAll('[role="main"] [role="row"], [role="main"] [data-scope="messages_table"] [dir="auto"]'))
           .filter((el) => {
             const style = window.getComputedStyle(el);
             const rect = el.getBoundingClientRect();
             return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
           })
-          .map((el) => el.innerText || el.textContent || '')"""
+          .map((el) => ({
+            text: el.innerText || el.textContent || '',
+            aria: el.getAttribute('aria-label') || '',
+          }))"""
     )
 
     replies: list[str] = []
     seen: set[str] = set()
-    for raw in texts[-80:]:
-        text = " ".join(str(raw).split())
+    for raw in messages[-80:]:
+        text = " ".join(str(raw.get("text", "")).split())
         norm = _normalize_message_text(text)
         if len(text) < 2 or len(text) > 1000:
+            continue
+        if "you" in str(raw.get("aria", "")).lower() or "sent by you" in str(raw.get("aria", "")).lower():
             continue
         if norm in ignored or norm in sent_norm:
             continue

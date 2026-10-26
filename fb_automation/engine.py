@@ -287,6 +287,7 @@ class AutomationEngine:
             self._emit("info", f"Collecting replies from {len(targets)} thread(s)...")
             context = None
             collected: list[dict[str, str]] = []
+            failed = 0
             try:
                 context, _ = await launch_browser(
                     headless=headless,
@@ -318,6 +319,7 @@ class AutomationEngine:
                                 })
                         self._emit("ok" if new_count else "info", f"[{tag}] {name}: {new_count} new repl{'y' if new_count == 1 else 'ies'}")
                     except Exception as e:
+                        failed += 1
                         self._emit("error", f"[{tag}] Reply collection failed for {name}: {e}")
                     finally:
                         await page.close()
@@ -326,7 +328,16 @@ class AutomationEngine:
                     await close_browser(context)
                 self.state.status = prev_status if prev_status != Status.RUNNING else Status.IDLE
 
-        return {"ok": True, "checked": len(targets), "collected": len(collected), "replies": collected}
+        result = {
+            "ok": failed == 0,
+            "checked": len(targets),
+            "failed": failed,
+            "collected": len(collected),
+            "replies": collected,
+        }
+        if failed:
+            result["error"] = f"{failed} thread(s) failed during reply collection"
+        return result
 
     async def send_reply_to_thread(
         self,
