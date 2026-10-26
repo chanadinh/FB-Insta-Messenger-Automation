@@ -40,3 +40,9 @@ debug/
 
 # Generic logs
 *.log
+
+# Private shared mailbox data
+mailbox.sqlite3*
+
+# Frontend dependencies
+dashboard/node_modules/
