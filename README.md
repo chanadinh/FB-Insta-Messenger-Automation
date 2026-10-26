@@ -21,6 +21,30 @@ python server.py
 
 Open **http://127.0.0.1:8000** (or http://localhost:8000). The UI talks to the API and live logs over WebSockets.
 
+### Separate React anniversary dashboard
+
+The focused anniversary dashboard lives in [`dashboard/`](dashboard/) and talks to the
+same FastAPI server. Run the server first, then in a second terminal:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Open the Vite URL (usually **http://localhost:5173**). Set `VITE_API_BASE_URL` if the
+server is not at `http://127.0.0.1:8000`; when hosting the dashboard on another origin,
+set the server's comma-separated `DASHBOARD_ORIGINS` environment variable as well.
+
+The React dashboard can preview or send an Instagram DM immediately and can create a
+persistent one-time schedule. The server must remain running at the scheduled time,
+and Instagram must be logged in through the existing **Setup Login** flow.
+
+It also includes a recipient-facing **Our memory gallery**. Use **Add photos** to
+import JPG, PNG, WEBP, or GIF memories (up to 10 MB each) to the server. Gallery
+files are stored under `APP_DATA_DIR/gallery` and are served through the gallery
+API/static path.
+
 ### 2. Browser profiles and login
 
 - Profiles are listed in `profiles.json` (default profile name: `Main`). Each profile uses its own Chromium data under `browser_profile_<slug>/` (e.g. `browser_profile_main/`).
@@ -99,6 +123,9 @@ Open the **Reminders** tab in the dashboard (or use **`/api/schedules`**). Creat
 - **Platforms** — Facebook, Instagram, or both.
 
 Jobs run in the background while `server.py` is up. Use **Run now** to test. Scheduled sends appear in the live log and `message_log.csv`.
+
+The API also accepts `schedule_type: "once"` with an ISO `run_at` value for a
+single future send. One-time jobs disable themselves after execution.
 
 ## Files
 

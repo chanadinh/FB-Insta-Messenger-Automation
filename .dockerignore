@@ -20,3 +20,6 @@ contacts.csv
 profiles.json
 message_log.csv
 *.log
+
+mailbox.sqlite3*
+dashboard/node_modules

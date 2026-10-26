@@ -6,15 +6,18 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from fb_automation.mailbox import router as mailbox_router
 from fb_automation.engine import AutomationEngine, Status
 from fb_automation.browser import (
     check_session_status, setup_login,
@@ -22,11 +25,16 @@ from fb_automation.browser import (
 )
 from fb_automation.logger import LOG_PATH, REPLIES_PATH, load_replies, update_reply_status
 from fb_automation.scheduler import JobScheduler, list_timezones, get_reminder_timezone_name
+from fb_automation.paths import data_path
 
 engine = AutomationEngine()
 scheduler = JobScheduler(engine)
 
 STATIC_DIR = Path(__file__).parent / "static"
+GALLERY_DIR = data_path("gallery")
+GALLERY_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
+MAX_GALLERY_IMAGE_BYTES = 10 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -38,6 +46,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FB Automation Dashboard", lifespan=lifespan)
+app.include_router(mailbox_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        origin.strip()
+        for origin in os.environ.get(
+            "DASHBOARD_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        ).split(",")
+        if origin.strip()
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ── WebSocket manager ─────────────────────────────────────────
@@ -124,6 +147,13 @@ class StartRequest(BaseModel):
     contact_indices: list[int] | None = None
 
 
+class AnniversarySendRequest(BaseModel):
+    contact_index: int = Field(ge=0)
+    message: str = Field(min_length=1, max_length=2000)
+    profile_name: str | None = None
+    dry_run: bool | None = None
+
+
 class ReplyCollectRequest(BaseModel):
     contact_indices: list[int] | None = None
     platforms: list[str] = Field(default_factory=lambda: ["facebook", "instagram"])
@@ -138,10 +168,11 @@ class ReplySendRequest(BaseModel):
 class ScheduleCreate(BaseModel):
     name: str
     enabled: bool = True
-    schedule_type: str = "daily"  # daily | interval
+    schedule_type: str = "daily"  # daily | interval | once
     hour: int = Field(default=9, ge=0, le=23)
     minute: int = Field(default=0, ge=0, le=59)
     interval_hours: int = Field(default=4, ge=1, le=168)
+    run_at: str | None = None
     contact_index: int = Field(ge=0)
     platforms: list[str] = Field(default_factory=lambda: ["instagram"])
     idea: str
@@ -160,6 +191,7 @@ class ScheduleUpdate(BaseModel):
     hour: int | None = Field(default=None, ge=0, le=23)
     minute: int | None = Field(default=None, ge=0, le=59)
     interval_hours: int | None = Field(default=None, ge=1, le=168)
+    run_at: str | None = None
     contact_index: int | None = Field(default=None, ge=0)
     platforms: list[str] | None = None
     idea: str | None = None
@@ -275,6 +307,53 @@ async def start_automation(body: StartRequest = StartRequest()):
 async def stop_automation():
     await engine.stop()
     return {"ok": True}
+
+
+@app.post("/api/anniversary/send")
+async def send_anniversary(body: AnniversarySendRequest):
+    contacts = engine.load_contacts()
+    if body.contact_index >= len(contacts):
+        return {"ok": False, "error": "Contact index out of range"}
+    if not contacts[body.contact_index].get("ig_url", "").strip():
+        return {"ok": False, "error": "Selected contact does not have an Instagram URL"}
+    try:
+        results = await engine.send_to_contact(
+            contacts[body.contact_index],
+            body.message.strip(),
+            ["instagram"],
+            profile_name=body.profile_name,
+            dry_run=body.dry_run,
+        )
+        return {"ok": bool(results.get("instagram")), "results": results}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/gallery")
+async def list_gallery():
+    images = []
+    for path in sorted(GALLERY_DIR.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
+        if path.is_file() and path.suffix.lower() in ALLOWED_IMAGE_TYPES.values():
+            images.append({
+                "name": path.name,
+                "url": f"/gallery/{path.name}",
+                "updated_at": path.stat().st_mtime,
+            })
+    return images
+
+
+@app.post("/api/gallery")
+async def upload_gallery_image(file: UploadFile = File(...)):
+    extension = ALLOWED_IMAGE_TYPES.get(file.content_type or "")
+    if not extension:
+        return {"ok": False, "error": "Only JPG, PNG, WEBP, and GIF images are supported"}
+    content = await file.read(MAX_GALLERY_IMAGE_BYTES + 1)
+    if len(content) > MAX_GALLERY_IMAGE_BYTES:
+        return {"ok": False, "error": "Images must be 10 MB or smaller"}
+    safe_stem = Path(file.filename or "memory").stem[:80] or "memory"
+    destination = GALLERY_DIR / f"{safe_stem}-{os.urandom(6).hex()}{extension}"
+    destination.write_bytes(content)
+    return {"ok": True, "image": {"name": destination.name, "url": f"/gallery/{destination.name}"}}
 
 
 _setup_running = False
@@ -496,7 +575,9 @@ async def websocket_endpoint(ws: WebSocket):
 
 # ── Static files (must be last) ────────────────────────────────
 
+app.mount("/mailbox", StaticFiles(directory=str(Path(__file__).parent / "dashboard" / "dist"), html=True, check_dir=False), name="mailbox")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/gallery", StaticFiles(directory=str(GALLERY_DIR)), name="gallery")
 
 
 if __name__ == "__main__":
