@@ -165,6 +165,47 @@ docker compose up -d
 
 Open **http://localhost:8000**. Data persists in the **`fb-automation-data`** Docker volume.
 
+### Cloudflare Tunnel
+
+Cloudflare Tunnel can publish the Docker dashboard without opening port 8000 to the
+internet or configuring router port forwarding. This uses a remotely managed tunnel
+token; keep the token private and do not commit it.
+
+1. In the [Cloudflare dashboard](https://one.dash.cloudflare.com/), open **Networks →
+   Tunnels**, create a tunnel, and choose **Docker** as the connector.
+2. Add a public hostname (for example, `dashboard.example.com`) and set the service
+   URL to `http://app:8000`. The hostname must use a domain managed in your
+   Cloudflare account.
+3. On the machine running this Compose project, export the connector token from the
+   install command shown by Cloudflare:
+
+   ```bash
+   export CLOUDFLARE_TUNNEL_TOKEN='paste-the-token-here'
+   ```
+
+4. Start the app and tunnel together:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
+   ```
+
+   To make the setting persistent across reboots, put
+   `CLOUDFLARE_TUNNEL_TOKEN=...` in an uncommitted `.env` file beside the Compose
+   files. `.env` is ignored by Git.
+
+Check that both containers are running with `docker compose ps` and open the
+Cloudflare hostname. WebSockets and gallery uploads are routed through the same
+hostname. Stop the tunnel with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tunnel.yml down
+```
+
+Do not use `cloudflared tunnel --url http://localhost:8000` for this deployment:
+that creates a temporary Quick Tunnel and is not a stable hostname or access
+control boundary. For a private dashboard, add Cloudflare Access in front of the
+public hostname before sharing it.
+
 ### CI/CD (GitHub Actions)
 
 - **Docker image** (`.github/workflows/docker-publish.yml`): on every push to **`main`** or a version tag **`v*`**, builds and pushes to **GitHub Container Registry** (`ghcr.io/<owner>/<repo>`). Pull requests still run the build (without push).
