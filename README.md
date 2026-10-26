@@ -32,6 +32,9 @@ npm install
 npm run dev
 ```
 
+When served by the FastAPI/Docker deployment, open the anniversary message dashboard
+at **`/anniversary/`**. The **`/mailbox/`** path remains the private mailbox page.
+
 Open the Vite URL (usually **http://localhost:5173**). Set `VITE_API_BASE_URL` if the
 server is not at `http://127.0.0.1:8000`; when hosting the dashboard on another origin,
 set the server's comma-separated `DASHBOARD_ORIGINS` environment variable as well.

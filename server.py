@@ -571,6 +571,7 @@ async def websocket_endpoint(ws: WebSocket):
 # ── Static files (must be last) ────────────────────────────────
 
 app.mount("/mailbox", StaticFiles(directory=str(Path(__file__).parent / "dashboard" / "dist"), html=True, check_dir=False), name="mailbox")
+app.mount("/anniversary", StaticFiles(directory=str(Path(__file__).parent / "dashboard" / "dist"), html=True, check_dir=False), name="anniversary")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/gallery", StaticFiles(directory=str(GALLERY_DIR)), name="gallery")
 
