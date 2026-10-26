@@ -36,6 +36,15 @@ Open the Vite URL (usually **http://localhost:5173**). Set `VITE_API_BASE_URL` i
 server is not at `http://127.0.0.1:8000`; when hosting the dashboard on another origin,
 set the server's comma-separated `DASHBOARD_ORIGINS` environment variable as well.
 
+To start both services with one command on Linux/macOS:
+
+```bash
+./scripts/run-dev.sh
+```
+
+The script starts the backend at `http://127.0.0.1:8000` and the React dashboard at
+`http://127.0.0.1:5173`. Press `Ctrl+C` to stop both processes.
+
 The React dashboard can preview or send an Instagram DM immediately and can create a
 persistent one-time schedule. The server must remain running at the scheduled time,
 and Instagram must be logged in through the existing **Setup Login** flow.
