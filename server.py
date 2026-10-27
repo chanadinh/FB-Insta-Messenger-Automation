@@ -7,7 +7,7 @@ import asyncio
 import csv
 import json
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +28,11 @@ from fb_automation.logger import LOG_PATH, REPLIES_PATH, load_replies, update_re
 from fb_automation.scheduler import JobScheduler, list_timezones, get_reminder_timezone_name
 from fb_automation.paths import data_path
 from fb_automation.gallery import image_metadata, thumbnail_path
+from fb_automation.love_words import LoveWordsService
 
 engine = AutomationEngine()
 scheduler = JobScheduler(engine)
+love_words = LoveWordsService(engine)
 
 STATIC_DIR = Path(__file__).parent / "static"
 GALLERY_DIR = data_path("gallery")
@@ -43,12 +45,19 @@ MAX_GALLERY_IMAGE_BYTES = 10 * 1024 * 1024
 async def lifespan(app: FastAPI):
     scheduler.on_event(_on_schedule_event)
     await scheduler.start()
-    yield
-    await scheduler.stop()
+    love_task = asyncio.create_task(love_words.run())
+    try:
+        yield
+    finally:
+        love_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await love_task
+        await scheduler.stop()
 
 
 app = FastAPI(title="FB Automation Dashboard", lifespan=lifespan)
 app.include_router(mailbox_router)
+app.include_router(love_words.router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -593,4 +602,4 @@ app.mount("/gallery", StaticFiles(directory=str(GALLERY_DIR)), name="gallery")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

@@ -46,3 +46,6 @@ mailbox.sqlite3*
 
 # Frontend dependencies
 dashboard/node_modules/
+
+# Local Instagram love-word archive
+love_words.sqlite3*

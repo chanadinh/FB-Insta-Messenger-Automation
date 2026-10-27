@@ -36,9 +36,37 @@ When served by the FastAPI/Docker deployment, open the anniversary message dashb
 at **`/anniversary/`**. The **`/mailbox/`** path remains the private mailbox page.
 
 Use the **English / Tiếng Việt** switch in the anniversary dashboard header to
-change the interface language. Your choice is saved in this browser. The starter
+change the interface language. Vietnamese is the default; your choice is saved in
+this browser. The starter
 message follows the selected language until you edit it; your own draft is preserved
 when switching languages.
+
+The dashboard bundles **Be Vietnam Pro** for body text and **Playfair Display**
+for headings, including Vietnamese glyphs, so fonts load from your server.
+
+Before sending, choose an **Instagram recipient** in the message card, or enter an
+`@username`, Instagram profile URL, or direct conversation link and click **Save
+recipient**. Use **Manage contacts and Instagram login** to sign in on the server
+if needed. Sending a note does not require a scheduled send time.
+
+The **Words we keep / Những lời thương giữ lại** section can collect loving words
+from one Instagram conversation. Paste its full `/direct/t/.../` link, save it,
+and click **Find loving words / Gom lời yêu thương**. Enable automatic collection
+in this section to check every five minutes while the server runs. The collector
+reads recent loaded text from both sides and never composes or sends a message.
+
+Detection runs locally for common English and Vietnamese expressions, including
+unaccented text and slang such as `vk`, `ck`, `iu`, `love u`, `luv u`, and `miss u`.
+The word `u` alone is not considered romantic. Matches are suggestions; remove
+anything that does not fit, and it stays removed on future scans. Identical
+phrases are saved once per conversation and browser profile. This is a recent
+text collection, not an import of the entire chat history.
+
+Kept words and opt-in collection settings persist in `APP_DATA_DIR/love_words.sqlite3`.
+No external AI service receives the chat text. Collection uses the configured
+Instagram browser profile and shares the automation lock with sending; if it is
+busy, try again after the current action finishes. The saved date is when a
+phrase was collected, not its original Instagram timestamp.
 
 Open the Vite URL (usually **http://localhost:5173**). Set `VITE_API_BASE_URL` if the
 server is not at `http://127.0.0.1:8000`; when hosting the dashboard on another origin,
