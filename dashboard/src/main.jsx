@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import Mailbox from "./Mailbox";
+import AnniversaryGallery from "./AnniversaryGallery";
 import { Icon, EnvelopeIllustration } from "./Illustrations";
 import { getInitialLanguage, LANGUAGE_STORAGE_KEY, locales, translate } from "./translations";
 
@@ -48,8 +49,6 @@ function App() {
   const t = (key, values) => translate(language, key, values);
   const [contacts, setContacts] = useState([]);
   const [schedules, setSchedules] = useState([]);
-  const [gallery, setGallery] = useState([]);
-  const [uploading, setUploading] = useState(false);
   const [draft, setMessage] = useState(null);
   const message = draft ?? t("defaultMessage");
   const [sendAt, setSendAt] = useState("");
@@ -74,32 +73,10 @@ function App() {
       ]);
       setContacts(nextContacts);
       setSchedules(nextSchedules);
-      setGallery(await api("/api/gallery"));
     } catch (error) {
       showError(error);
     }
 
-  }
-
-  async function importPhotos(event) {
-    const files = Array.from(event.target.files || []);
-    if (!files.length) return;
-    setUploading(true);
-    try {
-      for (const file of files) {
-        const form = new FormData();
-        form.append("file", file);
-        const result = await api("/api/gallery", { method: "POST", body: form });
-        if (!result.ok) throw (result.error ? new Error(result.error) : translatedError("importFailed", { name: file.name }));
-      }
-      showNotice("success", files.length === 1 ? "memoryAdded" : "memoriesAdded", { count: files.length });
-      setGallery(await api("/api/gallery"));
-    } catch (error) {
-      showError(error);
-    } finally {
-      setUploading(false);
-      event.target.value = "";
-    }
   }
 
   useEffect(() => {
@@ -245,22 +222,7 @@ function App() {
         <div><span className="stat-icon mint"><Icon name="instagram" /></span><div><b>{selectedContact ? t("recipientReady") : t("addRecipient")}</b><small>{selectedContact ? t("viaInstagram") : t("setupContact")}</small></div></div>
       </section>
 
-      <section className="card gallery-card" id="gallery">
-        <div className="card-heading">
-          <div><p className="eyebrow">{t("moments")}</p><h2>{t("gallery")}</h2></div>
-          <label className="button secondary upload-button">
-            {uploading ? t("adding") : t("addPhotos")}
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple onChange={importPhotos} disabled={uploading} />
-          </label>
-        </div>
-        {gallery.length ? (
-          <div className="gallery-grid">
-            {gallery.map((image) => <img key={image.name} src={`${API_BASE}${image.url}`} alt={t("memoryAlt")} loading="lazy" />)}
-          </div>
-        ) : (
-          <div className="gallery-empty"><span>♡</span><strong>{t("galleryEmpty")}</strong><p>{t("galleryHint")}</p></div>
-        )}
-      </section>
+      <AnniversaryGallery apiBase={API_BASE} language={language} />
 
       <section className="grid">
         <form id="compose" className="card composer" onSubmit={scheduleMessage}>

@@ -62,6 +62,16 @@ import JPG, PNG, WEBP, or GIF memories (up to 10 MB each) to the server. Gallery
 files are stored under `APP_DATA_DIR/gallery` and are served through the gallery
 API/static path.
 
+The anniversary gallery loads independently, shows soft placeholders while photos
+arrive, and keeps the album visible during background refreshes. A featured photo
+layout, **More memories** button, and keyboard-accessible photo viewer keep larger
+albums easy to browse. Drop photos onto the album to upload them.
+
+Grid previews are generated as cached WebP images (up to 960 px) under
+`APP_DATA_DIR/gallery/.thumbnails`; opening a photo displays the original. Existing
+uploads get previews automatically. Local installations need the updated Python
+dependencies (`pip install -r requirements.txt`); Docker installs them on rebuild.
+
 ### 2. Browser profiles and login
 
 - Profiles are listed in `profiles.json` (default profile name: `Main`). Each profile uses its own Chromium data under `browser_profile_<slug>/` (e.g. `browser_profile_main/`).

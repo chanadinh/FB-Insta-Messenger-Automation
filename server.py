@@ -11,10 +11,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image
 from pydantic import BaseModel, Field
 
 from fb_automation.mailbox import router as mailbox_router
@@ -26,6 +27,7 @@ from fb_automation.browser import (
 from fb_automation.logger import LOG_PATH, REPLIES_PATH, load_replies, update_reply_status
 from fb_automation.scheduler import JobScheduler, list_timezones, get_reminder_timezone_name
 from fb_automation.paths import data_path
+from fb_automation.gallery import image_metadata, thumbnail_path
 
 engine = AutomationEngine()
 scheduler = JobScheduler(engine)
@@ -334,12 +336,20 @@ async def list_gallery():
     images = []
     for path in sorted(GALLERY_DIR.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
         if path.is_file() and path.suffix.lower() in ALLOWED_IMAGE_TYPES.values():
-            images.append({
-                "name": path.name,
-                "url": f"/gallery/{path.name}",
-                "updated_at": path.stat().st_mtime,
-            })
+            images.append(image_metadata(path))
     return images
+
+
+@app.get("/api/gallery/thumbnail/{name}")
+def gallery_thumbnail(name: str):
+    source = (GALLERY_DIR / name).resolve()
+    if source.parent != GALLERY_DIR.resolve() or not source.is_file() or source.suffix.lower() not in ALLOWED_IMAGE_TYPES.values():
+        raise HTTPException(status_code=404, detail="Photo not found")
+    try:
+        preview = thumbnail_path(source)
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        raise HTTPException(status_code=422, detail="Could not preview this photo") from error
+    return FileResponse(preview, media_type="image/webp", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.post("/api/gallery")
@@ -353,7 +363,7 @@ async def upload_gallery_image(file: UploadFile = File(...)):
     safe_stem = Path(file.filename or "memory").stem[:80] or "memory"
     destination = GALLERY_DIR / f"{safe_stem}-{os.urandom(6).hex()}{extension}"
     destination.write_bytes(content)
-    return {"ok": True, "image": {"name": destination.name, "url": f"/gallery/{destination.name}"}}
+    return {"ok": True, "image": image_metadata(destination)}
 
 
 _setup_running = False
