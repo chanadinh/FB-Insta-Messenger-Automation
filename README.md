@@ -35,6 +35,11 @@ npm run dev
 When served by the FastAPI/Docker deployment, open the anniversary message dashboard
 at **`/anniversary/`**. The **`/mailbox/`** path remains the private mailbox page.
 
+Use the **English / Tiếng Việt** switch in the anniversary dashboard header to
+change the interface language. Your choice is saved in this browser. The starter
+message follows the selected language until you edit it; your own draft is preserved
+when switching languages.
+
 Open the Vite URL (usually **http://localhost:5173**). Set `VITE_API_BASE_URL` if the
 server is not at `http://127.0.0.1:8000`; when hosting the dashboard on another origin,
 set the server's comma-separated `DASHBOARD_ORIGINS` environment variable as well.
