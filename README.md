@@ -44,6 +44,11 @@ when switching languages.
 The dashboard bundles **Be Vietnam Pro** for body text and **Playfair Display**
 for headings, including Vietnamese glyphs, so fonts load from your server.
 
+Before sending, choose an **Instagram recipient** in the message card, or enter an
+`@username`, Instagram profile URL, or direct conversation link and click **Save
+recipient**. Use **Manage contacts and Instagram login** to sign in on the server
+if needed. Sending a note does not require a scheduled send time.
+
 Open the Vite URL (usually **http://localhost:5173**). Set `VITE_API_BASE_URL` if the
 server is not at `http://127.0.0.1:8000`; when hosting the dashboard on another origin,
 set the server's comma-separated `DASHBOARD_ORIGINS` environment variable as well.
