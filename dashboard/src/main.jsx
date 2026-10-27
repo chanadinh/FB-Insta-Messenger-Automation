@@ -22,7 +22,7 @@ function CatIllustration({ t }) {
       <path d="M140 123q-7 12-17 5m17-5q7 12 17 5" fill="none" stroke="#573a40" strokeWidth="2" strokeLinecap="round" />
       <path d="M81 125 43 116m39 20-40 4m114-15 38-9m-38 29 40 4" fill="none" stroke="#bd817e" strokeWidth="2" strokeLinecap="round" opacity=".7" />
       <path d="M77 142q63-25 126 0l-7 54q-56 14-112 0Z" fill="#fffaf4" stroke="#ecd9d0" strokeWidth="3" />
-      <text x="140" y="169" textAnchor="middle" fill="#9e5e62" fontFamily="Georgia, serif" fontSize="18" fontWeight="bold">{t("loveYou")}</text>
+      <text x="140" y="169" textAnchor="middle" fill="#9e5e62" fontFamily="inherit" fontSize="14" fontWeight="600">{t("loveYou")}</text>
       <path d="M67 154q-16 5-13 22 3 12 18 3m141-25q16 5 13 22-3 12-18 3" fill="none" stroke="var(--cat-fur)" strokeWidth="16" strokeLinecap="round" />
     </svg>
   );

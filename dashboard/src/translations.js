@@ -1,4 +1,5 @@
-export const LANGUAGE_STORAGE_KEY = "anniversary-language";
+// Start the Vietnamese default once, then remember explicit language choices.
+export const LANGUAGE_STORAGE_KEY = "anniversary-language-v2";
 export const locales = { en: "en-US", vi: "vi-VN" };
 
 export const translations = {
@@ -213,7 +214,7 @@ export function getInitialLanguage() {
     const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
     if (Object.hasOwn(locales, saved)) return saved;
   } catch { /* The language switch still works without browser storage. */ }
-  return "en";
+  return "vi";
 }
 
 export function translate(language, key, values = {}) {
