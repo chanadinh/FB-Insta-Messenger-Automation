@@ -267,3 +267,38 @@ footer { margin-top: 30px; text-align: center; font-size: 11px; color: var(--mut
   .recipient-selection { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .album *, .album *::before, .album *::after { animation: none !important; transition: none !important; } }
+
+/* Keepsakes from our chat */
+.love-words { margin: 0 0 24px; background: linear-gradient(135deg, #fffefd, #fff6f5); }
+.love-settings { border: 1px solid #eedee1; border-radius: 16px; background: #fcf4f3; padding: 20px; margin-bottom: 22px; }
+.love-settings > label:first-child { margin-bottom: 10px; }
+.love-settings > input { display: block; width: 100%; min-width: 0; padding: 13px; border: 1px solid #e4d7d4; border-radius: 11px; background: #fffefd; color: var(--ink); font-size: 12px; }
+.love-auto { display: flex; align-items: flex-start; gap: 10px; margin: 18px 0; font-size: 12px; line-height: 1.7; }
+.love-auto input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--rose); flex-shrink: 0; }
+.love-auto small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 4px; }
+.love-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.love-actions .button { gap: 7px; }
+.love-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+.love-filter button { min-height: 42px; padding: 9px 15px; border: 1px solid var(--line); border-radius: 24px; background: #fffaf7; color: var(--muted); font-size: 11px; }
+.love-filter button[aria-pressed="true"] { color: var(--rose); border-color: #d9a9b6; background: #f7e6eb; }
+.love-words-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.love-word { min-width: 0; display: flex; flex-direction: column; border: 1px solid #eadde1; border-radius: 16px; background: #fffdfa; padding: 17px; }
+.love-word:nth-child(3n+2) { background: #faf5fb; border-color: #e9deef; }
+.love-word:nth-child(3n) { background: #f8faf4; border-color: #e2e8db; }
+.love-word-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.love-word-meta > span { color: #a26c7f; letter-spacing: .08em; font-size: 10px; }
+.love-remove { display: grid; place-items: center; width: 36px; height: 36px; padding: 8px; border: 0; border-radius: 50%; background: transparent; color: #a7828f; }
+.love-remove:hover { background: #f5e7ec; }
+.love-remove:disabled { opacity: .4; cursor: default; }
+.love-word blockquote { margin: 12px 0 20px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.9; }
+.love-word > p { margin: auto 0 0; color: var(--muted); font-size: 10px; line-height: 1.7; }
+.love-empty { padding: 28px 16px; text-align: center; color: #b57a90; }
+.love-empty h3 { font: 600 20px "Playfair Display", Georgia, serif; color: var(--ink); line-height: 1.5; }
+.love-empty p { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.love-empty > span { font-size: 11px; line-height: 1.8; display: block; }
+.love-last-sync { font-size: 11px; color: var(--muted); }
+.love-more { margin-top: 18px; }
+.love-feedback { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.love-footnote { margin: 20px 0 0; padding-top: 16px; border-top: 1px dashed var(--line); }
+@media (max-width: 900px) { .love-words-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .love-words-grid { grid-template-columns: 1fr; } .love-settings { padding: 15px; } .love-actions .button { flex: 1; } .love-feedback { flex-wrap: wrap; } }

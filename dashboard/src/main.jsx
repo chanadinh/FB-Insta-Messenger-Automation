@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import Mailbox from "./Mailbox";
 import AnniversaryGallery from "./AnniversaryGallery";
+import LoveWords from "./LoveWords";
 import { Icon, EnvelopeIllustration } from "./Illustrations";
 import { getInitialLanguage, LANGUAGE_STORAGE_KEY, locales, translate } from "./translations";
 import { normalizeInstagramRecipient } from "./instagramRecipient";
@@ -216,6 +217,7 @@ function App() {
         <div className="rail-links">
           <a className="rail-link active" href="#compose"><Icon name="mail" /> {t("writeNote")}</a>
           <a className="rail-link" href="#gallery"><Icon name="image" /> {t("memories")}</a>
+          <a className="rail-link" href="#love-words"><Icon name="heart" /> {t("loveNav")}</a>
           <a className="rail-link" href="#upcoming"><Icon name="calendar" /> {t("upcoming")}</a>
         </div>
         <div className="rail-footer">{t("madeWith")}<br /><strong>{t("love")}</strong></div>
@@ -259,6 +261,7 @@ function App() {
       </section>
 
       <AnniversaryGallery apiBase={API_BASE} language={language} />
+      <LoveWords apiBase={API_BASE} language={language} suggestedThread={selectedContact?.ig_url?.trim()} />
 
       <section className="grid">
         <form id="compose" className="card composer" onSubmit={scheduleMessage}>
