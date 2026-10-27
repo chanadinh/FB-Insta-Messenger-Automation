@@ -1,6 +1,12 @@
 export function Icon({ name = "heart", ...props }) {
   const paths = {
     image: "M4 3h16v18H4ZM4 16l5-5 4 4 3-3 4 4M15 7h.01",
+    plus: "M12 5v14M5 12h14",
+    close: "m6 6 12 12M18 6 6 18",
+    expand: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5",
+    chevronLeft: "m15 5-7 7 7 7",
+    chevronRight: "m9 5 7 7-7 7",
+    chevronDown: "m5 9 7 7 7-7",
     heart: "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z",
     mail: "M3 5h18v14H3ZM3 5l9 8 9-8",
     calendar: "M4 5h16v16H4ZM8 3v4m8-4v4M4 11h16m-12 4h2m4 0h2",
