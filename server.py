@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import csv
 import json
 import os
+import secrets
 from contextlib import asynccontextmanager, suppress
+from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +21,10 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel, Field
 
+from fb_automation import access
 from fb_automation.mailbox import router as mailbox_router
 from fb_automation.engine import AutomationEngine, Status
-from fb_automation.browser import (
-    check_session_status, setup_login,
-    load_profiles, save_profiles, get_active_profile,
-)
+from fb_automation.browser import load_profiles, save_profiles, get_active_profile
 from fb_automation.logger import LOG_PATH, REPLIES_PATH, load_replies, update_reply_status
 from fb_automation.scheduler import JobScheduler, list_timezones, get_reminder_timezone_name
 from fb_automation.paths import data_path
@@ -55,7 +56,70 @@ async def lifespan(app: FastAPI):
         await scheduler.stop()
 
 
+class DashboardAuth:
+    """Guard every route except the token-protected mailbox and the link claim page.
+
+    A browser gets in with a private access link (fb_automation.access, stored as
+    a cookie) or, when DASHBOARD_PASSWORD is set, with HTTP Basic credentials.
+    Both are resent automatically on fetch and WebSocket requests. The guard is
+    on once a password or a link exists, or when REQUIRE_DASHBOARD_AUTH is set,
+    so a published deployment with neither stays closed.
+    """
+
+    PUBLIC_PREFIXES = ("/mailbox", "/api/mailbox", "/access", "/api/access")
+    DENIED_PAGE = (
+        "<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Dashboard</title><p style='font-family:system-ui,sans-serif;text-align:center;margin-top:30vh;padding:0 16px'>"
+        "Mở liên kết riêng của mình để vào nhé.<br>Open your private link to continue.</p>"
+    ).encode()
+
+    def __init__(self, app, username: str = "admin", password: str = "", required: bool = False) -> None:
+        self.app = app
+        self.expected = "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode() if password else None
+        self.required = required
+
+    def _authorized(self, scope) -> bool:
+        path = scope.get("path", "")
+        if any(path == prefix or path.startswith(prefix + "/") for prefix in self.PUBLIC_PREFIXES):
+            return True
+        headers = dict(scope.get("headers") or [])
+        cookies = SimpleCookie(headers.get(b"cookie", b"").decode("latin-1"))
+        token = cookies[access.COOKIE_NAME].value if access.COOKIE_NAME in cookies else None
+        if access.person_for(token):
+            return True
+        if self.expected:
+            header = headers.get(b"authorization", b"").decode("latin-1")
+            return secrets.compare_digest(header, self.expected)
+        return not self.required and not access.links_exist()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket") or self._authorized(scope):
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        if self.expected:
+            status, body = 401, b"Authentication required"
+            headers = [
+                (b"www-authenticate", b'Basic realm="dashboard", charset="UTF-8"'),
+                (b"content-type", b"text/plain; charset=utf-8"),
+            ]
+        else:
+            status, body = 403, self.DENIED_PAGE
+            headers = [(b"content-type", b"text/html; charset=utf-8")]
+        await send({"type": "http.response.start", "status": status, "headers": headers + [(b"cache-control", b"no-store")]})
+        await send({"type": "http.response.body", "body": body})
+
+
 app = FastAPI(title="FB Automation Dashboard", lifespan=lifespan)
+app.add_middleware(
+    DashboardAuth,
+    username=os.environ.get("DASHBOARD_USER", "admin"),
+    password=os.environ.get("DASHBOARD_PASSWORD", ""),
+    required=os.environ.get("REQUIRE_DASHBOARD_AUTH", "").lower() in ("1", "true", "yes"),
+)
+app.include_router(access.router)
 app.include_router(mailbox_router)
 app.include_router(love_words.router)
 app.add_middleware(
@@ -238,17 +302,21 @@ async def service_worker():
 @app.get("/api/status")
 async def get_status():
     profile = get_active_profile()
-    session = await check_session_status(profile)
+    session = await engine.check_session(profile)
     return {**engine.get_state(), "session": session, "active_profile": profile}
 
 
-@app.get("/api/config")
-async def get_config():
-    config = engine.load_config()
+def _masked_config(config: dict) -> dict:
+    config = dict(config)
     if config.get("openai_api_key"):
         key = config["openai_api_key"]
         config["openai_api_key"] = key[:8] + "..." + key[-4:] if len(key) > 12 else "***"
     return config
+
+
+@app.get("/api/config")
+async def get_config():
+    return _masked_config(engine.load_config())
 
 
 @app.put("/api/config")
@@ -261,7 +329,7 @@ async def update_config(update: ConfigUpdate):
     if config["follow_up_delay_min"] > config["follow_up_delay_max"]:
         return {"ok": False, "error": "Minimum follow-up delay cannot exceed maximum delay"}
     engine.save_config(config)
-    return {"ok": True, "config": config}
+    return {"ok": True, "config": _masked_config(config)}
 
 
 @app.get("/api/contacts")
@@ -294,6 +362,7 @@ async def delete_contact(idx: int):
         return {"ok": False, "error": "Index out of range"}
     removed = contacts.pop(idx)
     engine.save_contacts(contacts)
+    scheduler.contact_deleted(idx)
     return {"ok": True, "removed": removed}
 
 
@@ -393,14 +462,14 @@ async def do_setup_login(body: SetupLoginRequest = SetupLoginRequest()):
     global _setup_running
     if _setup_running:
         return {"ok": False, "error": "Setup login is already in progress"}
-    if engine.state.status == Status.RUNNING:
+    if engine.is_busy():
         return {"ok": False, "error": "Stop the automation first"}
     if body.platform not in ("facebook", "instagram"):
         return {"ok": False, "error": "platform must be 'facebook' or 'instagram'"}
     _setup_running = True
     try:
         profile = get_active_profile()
-        await setup_login(platform=body.platform, profile_name=profile)
+        await engine.setup_login(body.platform, profile)
         label = "Facebook" if body.platform == "facebook" else "Instagram"
         return {"ok": True, "message": f"{label} login saved for profile '{profile}'!"}
     except Exception as e:

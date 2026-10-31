@@ -10,6 +10,7 @@ from typing import Callable
 
 from playwright.async_api import Page
 
+from fb_automation.logger import normalize_message_text, sent_message_matcher
 from fb_automation.paths import data_path
 from fb_automation.love_words import LoveWordsError, normalize_thread
 
@@ -297,28 +298,31 @@ async def _type_and_send(page: Page, message: str, emit: EmitFn = None) -> bool:
 
         await page.wait_for_timeout(random.randint(800, 1500))
 
-        sent = False
         await page.keyboard.press("Enter")
         await page.wait_for_timeout(1500)
 
-        # Some IG builds ignore Enter in headless — click Send
-        for sel in (
-            'div[role="button"]:has-text("Send")',
-            'button:has-text("Send")',
-            'div[role="button"]:has-text("Gửi")',
-            'button:has-text("Gửi")',
-        ):
-            try:
-                btn = await page.query_selector(sel)
-                if btn and await btn.is_visible():
-                    await btn.click()
-                    sent = True
-                    break
-            except Exception:
-                continue
+        # Some IG builds ignore Enter in headless — click Send only if the text is still there,
+        # so a message Enter already sent is not sent twice.
+        if await _composer_text(page, input_box, input_selectors):
+            for sel in (
+                'div[role="button"]:has-text("Send")',
+                'button:has-text("Send")',
+                'div[role="button"]:has-text("Gửi")',
+                'button:has-text("Gửi")',
+            ):
+                try:
+                    btn = await page.query_selector(sel)
+                    if btn and await btn.is_visible():
+                        await btn.click()
+                        break
+                except Exception:
+                    continue
+            await page.wait_for_timeout(1500)
 
-        if not sent:
-            sent = True  # Enter was pressed; assume sent if no explicit Send button
+        if await _composer_text(page, input_box, input_selectors):
+            _emit(emit, "error", "Instagram did not accept the message (it is still in the composer).")
+            await _save_debug(page, "ig_send_unconfirmed")
+            return False
 
         await page.wait_for_timeout(random.randint(2000, 3000))
         _emit(emit, "ok", "Message sent.")
@@ -328,6 +332,23 @@ async def _type_and_send(page: Page, message: str, emit: EmitFn = None) -> bool:
         _emit(emit, "error", f"Failed to type/send message: {e}")
         await _save_debug(page, "ig_send_failed")
         return False
+
+
+async def _composer_text(page: Page, input_box, selectors: list[str]) -> str:
+    """Text left in the message box; empty once Instagram has taken the message."""
+    read = "el => (el.tagName.toLowerCase() === 'textarea' ? el.value : el.innerText) || ''"
+    try:
+        return (await input_box.evaluate(read)).strip()
+    except Exception:
+        pass  # Instagram re-rendered the composer; read the current one instead.
+    for sel in selectors:
+        try:
+            box = await page.query_selector(sel)
+            if box:
+                return (await box.evaluate(read)).strip()
+        except Exception:
+            continue
+    return ""
 
 
 async def send_ig_follow_up(page: Page, message: str, emit: EmitFn = None) -> bool:
@@ -414,7 +435,7 @@ async def collect_ig_replies(
 
 
 async def _collect_visible_thread_text(page: Page, sent_messages: list[str]) -> list[str]:
-    sent_norm = {_normalize_message_text(msg) for msg in sent_messages if msg}
+    is_sent = sent_message_matcher(sent_messages)
     ignored = {
         "",
         "message",
@@ -440,24 +461,13 @@ async def _collect_visible_thread_text(page: Page, sent_messages: list[str]) -> 
     seen: set[str] = set()
     for raw in texts[-80:]:
         text = " ".join(str(raw).split())
-        norm = _normalize_message_text(text)
+        norm = normalize_message_text(text)
         if len(text) < 2 or len(text) > 1000:
             continue
-        if norm in ignored or norm in sent_norm:
-            continue
-        if any(norm and norm in sent for sent in sent_norm):
+        if norm in ignored or is_sent(text):
             continue
         if norm in seen:
             continue
         seen.add(norm)
         replies.append(text)
     return replies[-20:]
-
-
-def _normalize_message_text(text: str) -> str:
-    cleaned = text
-    for prefix in ("[IG]", "[FB]"):
-        cleaned = cleaned.replace(prefix, "")
-    if "] " in cleaned and "[follow-up" in cleaned:
-        cleaned = cleaned.split("] ", 1)[1]
-    return " ".join(cleaned.lower().split())
