@@ -1,10 +1,10 @@
 services:
   app:
     environment:
-      # Published dashboards stay closed until private links or a password exist.
+      # A published dashboard stays closed until a password is set.
       REQUIRE_DASHBOARD_AUTH: "1"
       DASHBOARD_USER: ${DASHBOARD_USER:-admin}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?Set DASHBOARD_PASSWORD before publishing the dashboard through the tunnel}
   cloudflared:
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN before starting the tunnel}

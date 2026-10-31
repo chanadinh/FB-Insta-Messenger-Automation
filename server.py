@@ -9,70 +9,45 @@ import csv
 import json
 import os
 import secrets
-from contextlib import asynccontextmanager, suppress
-from http.cookies import SimpleCookie
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
 from pydantic import BaseModel, Field
 
-from fb_automation import access
-from fb_automation.letters import router as letters_router
-from fb_automation.mailbox import router as mailbox_router
 from fb_automation.engine import AutomationEngine, Status
 from fb_automation.browser import load_profiles, save_profiles, get_active_profile
 from fb_automation.logger import LOG_PATH, REPLIES_PATH, load_replies, update_reply_status
 from fb_automation.scheduler import JobScheduler, list_timezones, get_reminder_timezone_name
-from fb_automation.paths import data_path
-from fb_automation.gallery import image_metadata, thumbnail_path
-from fb_automation.love_words import LoveWordsService
 
 engine = AutomationEngine()
 scheduler = JobScheduler(engine)
-love_words = LoveWordsService(engine)
 
 STATIC_DIR = Path(__file__).parent / "static"
-GALLERY_DIR = data_path("gallery")
-GALLERY_DIR.mkdir(parents=True, exist_ok=True)
-ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
-MAX_GALLERY_IMAGE_BYTES = 10 * 1024 * 1024
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.on_event(_on_schedule_event)
     await scheduler.start()
-    love_task = asyncio.create_task(love_words.run())
     try:
         yield
     finally:
-        love_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await love_task
         await scheduler.stop()
 
 
 class DashboardAuth:
-    """Guard every route except the token-protected mailbox and the link claim page.
+    """HTTP Basic auth for every route, enabled when DASHBOARD_PASSWORD is set.
 
-    A browser gets in with a private access link (fb_automation.access, stored as
-    a cookie) or, when DASHBOARD_PASSWORD is set, with HTTP Basic credentials.
-    Both are resent automatically on fetch and WebSocket requests. The guard is
-    on once a password or a link exists, or when REQUIRE_DASHBOARD_AUTH is set,
-    so a published deployment with neither stays closed.
+    Browsers cache Basic credentials and resend them on fetch and WebSocket
+    requests, so the pages need no changes. With REQUIRE_DASHBOARD_AUTH set and
+    no password, everything stays closed, so a published deployment cannot be
+    left open by accident.
     """
-
-    PUBLIC_PREFIXES = ("/mailbox", "/api/mailbox", "/access", "/api/access")
-    DENIED_PAGE = (
-        "<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>Dashboard</title><p style='font-family:system-ui,sans-serif;text-align:center;margin-top:30vh;padding:0 16px'>"
-        "Mở liên kết riêng của mình để vào nhé.<br>Open your private link to continue.</p>"
-    ).encode()
 
     def __init__(self, app, username: str = "admin", password: str = "", required: bool = False) -> None:
         self.app = app
@@ -80,18 +55,10 @@ class DashboardAuth:
         self.required = required
 
     def _authorized(self, scope) -> bool:
-        path = scope.get("path", "")
-        if any(path == prefix or path.startswith(prefix + "/") for prefix in self.PUBLIC_PREFIXES):
-            return True
-        headers = dict(scope.get("headers") or [])
-        cookies = SimpleCookie(headers.get(b"cookie", b"").decode("latin-1"))
-        token = cookies[access.COOKIE_NAME].value if access.COOKIE_NAME in cookies else None
-        if access.person_for(token):
-            return True
-        if self.expected:
-            header = headers.get(b"authorization", b"").decode("latin-1")
-            return secrets.compare_digest(header, self.expected)
-        return not self.required and not access.links_exist()
+        if not self.expected:
+            return not self.required
+        header = dict(scope.get("headers") or []).get(b"authorization", b"").decode("latin-1")
+        return secrets.compare_digest(header, self.expected)
 
     async def __call__(self, scope, receive, send):
         if scope["type"] not in ("http", "websocket") or self._authorized(scope):
@@ -102,14 +69,12 @@ class DashboardAuth:
             return
         if self.expected:
             status, body = 401, b"Authentication required"
-            headers = [
-                (b"www-authenticate", b'Basic realm="dashboard", charset="UTF-8"'),
-                (b"content-type", b"text/plain; charset=utf-8"),
-            ]
+            headers = [(b"www-authenticate", b'Basic realm="dashboard", charset="UTF-8"')]
         else:
-            status, body = 403, self.DENIED_PAGE
-            headers = [(b"content-type", b"text/html; charset=utf-8")]
-        await send({"type": "http.response.start", "status": status, "headers": headers + [(b"cache-control", b"no-store")]})
+            status, body = 403, b"Set DASHBOARD_PASSWORD to open this dashboard."
+            headers = []
+        await send({"type": "http.response.start", "status": status, "headers": headers + [
+            (b"content-type", b"text/plain; charset=utf-8"), (b"cache-control", b"no-store")]})
         await send({"type": "http.response.body", "body": body})
 
 
@@ -120,10 +85,6 @@ app.add_middleware(
     password=os.environ.get("DASHBOARD_PASSWORD", ""),
     required=os.environ.get("REQUIRE_DASHBOARD_AUTH", "").lower() in ("1", "true", "yes"),
 )
-app.include_router(access.router)
-app.include_router(letters_router)
-app.include_router(mailbox_router)
-app.include_router(love_words.router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -222,13 +183,6 @@ class ProfileSetActive(BaseModel):
 
 class StartRequest(BaseModel):
     contact_indices: list[int] | None = None
-
-
-class AnniversarySendRequest(BaseModel):
-    contact_index: int = Field(ge=0)
-    message: str = Field(min_length=1, max_length=2000)
-    profile_name: str | None = None
-    dry_run: bool | None = None
 
 
 class ReplyCollectRequest(BaseModel):
@@ -389,61 +343,6 @@ async def start_automation(body: StartRequest = StartRequest()):
 async def stop_automation():
     await engine.stop()
     return {"ok": True}
-
-
-@app.post("/api/anniversary/send")
-async def send_anniversary(body: AnniversarySendRequest):
-    contacts = engine.load_contacts()
-    if body.contact_index >= len(contacts):
-        return {"ok": False, "error": "Contact index out of range"}
-    if not contacts[body.contact_index].get("ig_url", "").strip():
-        return {"ok": False, "error": "Selected contact does not have an Instagram URL"}
-    try:
-        results = await engine.send_to_contact(
-            contacts[body.contact_index],
-            body.message.strip(),
-            ["instagram"],
-            profile_name=body.profile_name,
-            dry_run=body.dry_run,
-        )
-        return {"ok": bool(results.get("instagram")), "results": results}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-@app.get("/api/gallery")
-async def list_gallery():
-    images = []
-    for path in sorted(GALLERY_DIR.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
-        if path.is_file() and path.suffix.lower() in ALLOWED_IMAGE_TYPES.values():
-            images.append(image_metadata(path))
-    return images
-
-
-@app.get("/api/gallery/thumbnail/{name}")
-def gallery_thumbnail(name: str):
-    source = (GALLERY_DIR / name).resolve()
-    if source.parent != GALLERY_DIR.resolve() or not source.is_file() or source.suffix.lower() not in ALLOWED_IMAGE_TYPES.values():
-        raise HTTPException(status_code=404, detail="Photo not found")
-    try:
-        preview = thumbnail_path(source)
-    except (OSError, ValueError, Image.DecompressionBombError) as error:
-        raise HTTPException(status_code=422, detail="Could not preview this photo") from error
-    return FileResponse(preview, media_type="image/webp", headers={"Cache-Control": "public, max-age=86400"})
-
-
-@app.post("/api/gallery")
-async def upload_gallery_image(file: UploadFile = File(...)):
-    extension = ALLOWED_IMAGE_TYPES.get(file.content_type or "")
-    if not extension:
-        return {"ok": False, "error": "Only JPG, PNG, WEBP, and GIF images are supported"}
-    content = await file.read(MAX_GALLERY_IMAGE_BYTES + 1)
-    if len(content) > MAX_GALLERY_IMAGE_BYTES:
-        return {"ok": False, "error": "Images must be 10 MB or smaller"}
-    safe_stem = Path(file.filename or "memory").stem[:80] or "memory"
-    destination = GALLERY_DIR / f"{safe_stem}-{os.urandom(6).hex()}{extension}"
-    destination.write_bytes(content)
-    return {"ok": True, "image": image_metadata(destination)}
 
 
 _setup_running = False
@@ -665,10 +564,7 @@ async def websocket_endpoint(ws: WebSocket):
 
 # ── Static files (must be last) ────────────────────────────────
 
-app.mount("/mailbox", StaticFiles(directory=str(Path(__file__).parent / "dashboard" / "dist"), html=True, check_dir=False), name="mailbox")
-app.mount("/anniversary", StaticFiles(directory=str(Path(__file__).parent / "dashboard" / "dist"), html=True, check_dir=False), name="anniversary")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-app.mount("/gallery", StaticFiles(directory=str(GALLERY_DIR)), name="gallery")
 
 
 if __name__ == "__main__":

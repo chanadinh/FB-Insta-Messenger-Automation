@@ -21,7 +21,3 @@ profiles.json
 message_log.csv
 *.log
 
-mailbox.sqlite3*
-love_words.sqlite3*
-dashboard_access.sqlite3*
-dashboard/node_modules

@@ -16,7 +16,7 @@ from fb_automation.browser import (
     check_session_status, setup_login,
 )
 from fb_automation.messenger import send_message, send_follow_up, delay_between_messages, collect_fb_replies
-from fb_automation.instagram import send_ig_message, send_ig_follow_up, collect_ig_replies, collect_ig_love_words
+from fb_automation.instagram import send_ig_message, send_ig_follow_up, collect_ig_replies
 from fb_automation.templates import render_message
 from fb_automation.chatgen import generate_follow_ups
 from fb_automation.logger import log_message, load_message_log, log_reply
@@ -268,29 +268,6 @@ class AutomationEngine:
                 self.state.status = prev_status if prev_status != Status.RUNNING else Status.IDLE
 
         return results
-
-    async def collect_love_words(self, thread_url: str, *, profile_name: str | None = None) -> list[str]:
-        """Read recent message text from one chat without composing or sending."""
-        from fb_automation.love_words import LoveWordsError
-
-        if self.is_busy():
-            raise LoveWordsError("busy")
-        async with self._busy_lock:
-            previous_status = self.state.status
-            self.state.status = Status.RUNNING
-            context = None
-            try:
-                context, _ = await launch_browser(
-                    headless=True, need_fb=False, need_ig=True, profile_name=profile_name,
-                )
-                page = await context.new_page()
-                return await collect_ig_love_words(page, thread_url)
-            finally:
-                try:
-                    if context:
-                        await close_browser(context)
-                finally:
-                    self.state.status = previous_status
 
     async def collect_replies(
         self,
