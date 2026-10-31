@@ -239,6 +239,26 @@ token; keep the token private and do not commit it.
    `CLOUDFLARE_TUNNEL_TOKEN=...` in an uncommitted `.env` file beside the Compose
    files. `.env` is ignored by Git.
 
+5. Create the two private dashboard links (use your Cloudflare hostname):
+
+   ```bash
+   docker compose exec app python -m fb_automation.access --base-url https://dashboard.example.com --names Anh Em
+   ```
+
+   Send each person their own link. Opening it once lets that browser in for a
+   year; there is no account or password to enter. Everyone else sees a
+   "private link" page. Links are printed only once.
+
+   - Replace both links (old ones stop working): add `--rotate`.
+   - Remove one person: `docker compose exec app python -m fb_automation.access --revoke Em`.
+   - A link works for whoever opens it, so send it privately. It is tied to the
+     browser it was opened in, not to an Instagram account; opening it in a new
+     browser or after clearing cookies needs the link again.
+
+   Optionally set `DASHBOARD_PASSWORD` (and `DASHBOARD_USER`, default `admin`) in
+   `.env` for a password fallback. The tunnel Compose file keeps the dashboard
+   closed until a link or password exists. `/mailbox/` keeps its own links.
+
 Check that both containers are running with `docker compose ps` and open the
 Cloudflare hostname. WebSockets and gallery uploads are routed through the same
 hostname. Stop the tunnel with:
@@ -249,8 +269,8 @@ docker compose -f docker-compose.yml -f docker-compose.tunnel.yml down
 
 Do not use `cloudflared tunnel --url http://localhost:8000` for this deployment:
 that creates a temporary Quick Tunnel and is not a stable hostname or access
-control boundary. For a private dashboard, add Cloudflare Access in front of the
-public hostname before sharing it.
+control boundary. Cloudflare Access is not needed with the private links above;
+adding it would make both people sign in again.
 
 ### CI/CD (GitHub Actions)
 

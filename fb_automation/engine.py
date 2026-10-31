@@ -11,7 +11,10 @@ from enum import Enum
 from random import uniform
 from typing import Callable
 
-from fb_automation.browser import launch_browser, close_browser, CookieAuthError, get_active_profile
+from fb_automation.browser import (
+    launch_browser, close_browser, CookieAuthError, get_active_profile,
+    check_session_status, setup_login,
+)
 from fb_automation.messenger import send_message, send_follow_up, delay_between_messages, collect_fb_replies
 from fb_automation.instagram import send_ig_message, send_ig_follow_up, collect_ig_replies, collect_ig_love_words
 from fb_automation.templates import render_message
@@ -72,6 +75,19 @@ class AutomationEngine:
 
     def is_busy(self) -> bool:
         return self._busy_lock.locked()
+
+    async def check_session(self, profile_name: str) -> dict:
+        """Check logins without restarting a browser another task is using."""
+        if self.is_busy():
+            return {"fb": None, "ig": None, "reason": "Browser automation is running; session check skipped."}
+        async with self._busy_lock:
+            return await check_session_status(profile_name)
+
+    async def setup_login(self, platform: str, profile_name: str) -> None:
+        if self.is_busy():
+            raise RuntimeError("Browser automation is busy")
+        async with self._busy_lock:
+            await setup_login(platform=platform, profile_name=profile_name)
 
     def on_log(self, callback: LogCallback) -> None:
         self._log_callbacks.append(callback)
@@ -640,7 +656,8 @@ class AutomationEngine:
                 if api_key and follow_up_count > 0:
                     self._emit("info", f"[{tag}] Generating {follow_up_count} follow-ups for {name}...")
                     try:
-                        follow_ups = generate_follow_ups(
+                        follow_ups = await asyncio.to_thread(
+                            generate_follow_ups,
                             message, name, api_key,
                             model=openai_model,
                             num_messages=follow_up_count,

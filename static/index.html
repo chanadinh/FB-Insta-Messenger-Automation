@@ -1102,7 +1102,10 @@ function addLogLine(entry) {
   viewer.scrollTop = viewer.scrollHeight;
 }
 
-function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+}
+function safeUrl(s) { return /^https?:\/\//i.test(String(s || '').trim()) ? String(s).trim() : '#'; }
 
 // ── API helpers ────────────────────────
 
@@ -1167,6 +1170,8 @@ async function loadStatus() {
   updateUI(data);
 
   const s = data.session || {};
+  // null means the check was skipped while the browser is in use; keep the last result.
+  if (s.fb === null && s.ig === null) return;
 
   const fbBar = document.getElementById('fb-session');
   const fbText = document.getElementById('fb-session-text');
@@ -1287,10 +1292,10 @@ async function loadContacts() {
     const fb = c.fb_url || '';
     const ig = c.ig_url || '';
     const fbCell = fb
-      ? `<a class="profile-link" href="${escHtml(fb)}" target="_blank"><span class="platform-badge facebook">FB</span></a>`
+      ? `<a class="profile-link" href="${escHtml(safeUrl(fb))}" target="_blank" rel="noopener noreferrer"><span class="platform-badge facebook">FB</span></a>`
       : '<span style="color:var(--text2)">-</span>';
     const igCell = ig
-      ? `<a class="profile-link" href="${escHtml(ig)}" target="_blank"><span class="platform-badge instagram">IG</span></a>`
+      ? `<a class="profile-link" href="${escHtml(safeUrl(ig))}" target="_blank" rel="noopener noreferrer"><span class="platform-badge instagram">IG</span></a>`
       : '<span style="color:var(--text2)">-</span>';
     return `
       <tr>

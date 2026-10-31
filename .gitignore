@@ -49,3 +49,6 @@ dashboard/node_modules/
 
 # Local Instagram love-word archive
 love_words.sqlite3*
+
+# Private dashboard access links
+dashboard_access.sqlite3*
