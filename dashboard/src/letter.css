@@ -119,6 +119,27 @@ body { background: var(--grain), radial-gradient(1100px 700px at 80% -10%, #f6e2
 .love-filter button { border-radius: 6px; background: var(--paper); }
 .love-settings, .recipient-picker, .schedule-box { background: #fbf2e4; border: 1px dashed #d8c2a3; border-radius: 4px; }
 
+/* Inbox: sealed little envelopes until opened, then handwritten notes */
+.inbox { margin: 30px 0 24px; }
+.inbox-tabs { margin-top: 0; }
+.inbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; padding-top: 6px; }
+.inbox-letter { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border-radius: 2px; rotate: -.6deg;
+  background: var(--grain), repeating-linear-gradient(transparent 0 29px, #d9c9b059 29px 30px), #fffdf6; background-position: 0 0, 0 14px, 0 0; box-shadow: 0 2px 3px #6b4a2f1a, 0 12px 22px -12px #6b4a2f59; }
+.inbox-letter:nth-child(even) { rotate: .8deg; }
+.inbox-letter.sealed { background: var(--grain), linear-gradient(160deg, #f6ead7, #eedcc2); border: 1px solid #dfcaa9; }
+.inbox-letter.sealed::before { content: ""; position: absolute; inset: 0 0 auto; height: 52%; background: #ead6b7; clip-path: polygon(0 0, 100% 0, 50% 100%); opacity: .8; pointer-events: none; }
+.inbox-letter-meta { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; }
+.inbox-letter-meta strong { font-size: 22px; color: var(--wax); line-height: 1.1; }
+.inbox-letter-meta time { font-size: 10px; color: var(--muted); }
+.inbox-letter-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--script); font-size: 21px; line-height: 30px; color: #3f2c2e; }
+.inbox-seal { position: relative; display: grid; justify-items: center; gap: 6px; padding: 8px 8px 4px; border: 0; background: none; color: #6b4a3f; font-size: 12px; }
+.inbox-seal small { font-family: var(--script); font-size: 17px; color: var(--wax); }
+.mini-seal { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 46% 54% 50% 50% / 52% 48% 54% 46%; color: #f7c9cf; font-size: 20px;
+  background: radial-gradient(circle at 34% 28%, #c44a60, var(--wax) 45%, var(--wax-dark)); box-shadow: 0 3px 0 #5b1322, 0 8px 16px #6f1a2b4d; transition: translate .2s; }
+.inbox-seal:not(:disabled):hover .mini-seal { translate: 0 -2px; }
+.inbox-receipt { color: var(--muted); font-size: 10px; }
+@media (max-width: 700px) { .inbox-grid { grid-template-columns: 1fr; } }
+
 /* Writing paper */
 .composer textarea { padding: 10px 16px 10px 52px; border-color: #e1cfb4; border-radius: 3px; font-family: var(--script); font-size: 22px; line-height: 34px; background-color: #fffcf5;
   background-image: linear-gradient(90deg, transparent 36px, #d97b8a66 36px 37px, transparent 37px), repeating-linear-gradient(transparent 0 33px, #d6c4a873 33px 34px); background-position: 0 0, 0 10px; }

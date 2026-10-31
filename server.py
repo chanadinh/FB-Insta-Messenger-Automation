@@ -22,6 +22,7 @@ from PIL import Image
 from pydantic import BaseModel, Field
 
 from fb_automation import access
+from fb_automation.letters import router as letters_router
 from fb_automation.mailbox import router as mailbox_router
 from fb_automation.engine import AutomationEngine, Status
 from fb_automation.browser import load_profiles, save_profiles, get_active_profile
@@ -120,6 +121,7 @@ app.add_middleware(
     required=os.environ.get("REQUIRE_DASHBOARD_AUTH", "").lower() in ("1", "true", "yes"),
 )
 app.include_router(access.router)
+app.include_router(letters_router)
 app.include_router(mailbox_router)
 app.include_router(love_words.router)
 app.add_middleware(

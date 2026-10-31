@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
+import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import "./letter.css";
@@ -7,8 +7,8 @@ import AnniversaryGallery from "./AnniversaryGallery";
 import LoveWords from "./LoveWords";
 import { Icon, EnvelopeIllustration } from "./Illustrations";
 import { getInitialLanguage, LANGUAGE_STORAGE_KEY, locales, translate } from "./translations";
-import { normalizeInstagramRecipient } from "./instagramRecipient";
 import { AmbientBackdrop } from "./Decor";
+import LetterBox from "./LetterBox";
 import LetterHero from "./LetterHero";
 import {
   animateOut, burstHearts, gsap, motionAllowed, revealNew, ScrollTrigger, useGSAP,
@@ -16,7 +16,6 @@ import {
 } from "./motion";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
-const SETUP_URL = `${API_BASE || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "")}/`;
 function CatIllustration({ t }) {
   const scope = useRef(null);
   const { contextSafe } = useGSAP(() => withMotion(() => {
@@ -77,7 +76,7 @@ function CatIllustration({ t }) {
   );
 }
 
-const SECTIONS = [["compose", "mail", "writeNote"], ["gallery", "image", "memories"], ["love-words", "heart", "loveNav"], ["upcoming", "calendar", "upcoming"]];
+const SECTIONS = [["inbox", "mail", "inboxNav"], ["gallery", "image", "memories"], ["love-words", "heart", "loveNav"], ["compose", "sparkle", "writeNote"], ["upcoming", "calendar", "upcoming"]];
 
 /** The section whose top most recently passed 40% of the viewport height. */
 function currentSection() {
@@ -98,8 +97,8 @@ async function api(path, options = {}) {
     ...options,
   }).catch(() => { throw translatedError("connectionFailed"); });
   const body = await response.json().catch(() => { throw translatedError("requestFailed"); });
-  if (!response.ok) throw (typeof body.detail === "string" || typeof body.error === "string"
-    ? new Error(body.detail || body.error) : translatedError("requestFailed"));
+  if (!response.ok) throw Object.assign(typeof body.detail === "string" || typeof body.error === "string"
+    ? new Error(body.detail || body.error) : translatedError("requestFailed"), { status: response.status });
   return body;
 }
 
@@ -110,16 +109,9 @@ function translatedError(key, values = {}) {
 function App() {
   const [language, setLanguage] = useState(getInitialLanguage);
   const t = (key, values) => translate(language, key, values);
-  const [contacts, setContacts] = useState([]);
-  const [contactsLoading, setContactsLoading] = useState(true);
-  const [contactsError, setContactsError] = useState(false);
-  const [schedulesError, setSchedulesError] = useState(false);
-  const [recipientUrl, setRecipientUrl] = useState("");
-  const [recipientInput, setRecipientInput] = useState("");
-  const [addingRecipient, setAddingRecipient] = useState(false);
-  const [schedules, setSchedules] = useState([]);
-  const [draft, setMessage] = useState(null);
-  const message = draft ?? t("defaultMessage");
+  const [letters, setLetters] = useState(null);
+  const [lettersError, setLettersError] = useState("");
+  const [message, setMessage] = useState("");
   const [sendAt, setSendAt] = useState("");
   const [notice, setNotice] = useState({ type: "", text: "" });
   const [pendingAction, setPendingAction] = useState(null);
@@ -128,12 +120,14 @@ function App() {
     try { return sessionStorage.getItem("anniversary-surprise-opened") === "true"; } catch { return false; }
   });
   const action = useRef(false);
-  const recipientField = useRef(null);
+  const seenInbox = useRef(null);
   const page = useRef(null);
   const surpriseButton = useRef(null);
   const sendButton = useRef(null);
   const scheduleButton = useRef(null);
   const [activeSection, setActiveSection] = useState(SECTIONS[0][0]);
+  const names = { me: letters?.me || "", partner: letters?.partner || t("recipientFallback") };
+  const canWrite = !!letters?.partner;
 
   useIntro(page);
   useWordsRefresh(page, language);
@@ -163,10 +157,6 @@ function App() {
     return () => window.removeEventListener("resize", resize);
   }, { scope: page, dependencies: [activeSection, language] });
 
-  const recipients = useMemo(() => contacts.filter((contact) => contact.ig_url?.trim()), [contacts]);
-  const selectedContact = recipients.find((contact) => contact.ig_url.trim() === recipientUrl) || recipients[0];
-  const contactIndex = contacts.indexOf(selectedContact);
-
   useEffect(() => {
     document.documentElement.lang = language;
     document.title = translate(language, "pageTitle");
@@ -174,21 +164,24 @@ function App() {
   }, [language]);
 
   async function load() {
-    await Promise.allSettled([
-      api("/api/contacts").then((next) => {
-        if (!Array.isArray(next)) throw new Error();
-        setContacts(next); setContactsError(false);
-      }).catch(() => setContactsError(true)).finally(() => setContactsLoading(false)),
-      api("/api/schedules").then((next) => {
-        if (!Array.isArray(next)) throw new Error();
-        setSchedules(next); setSchedulesError(false);
-      }).catch(() => setSchedulesError(true)),
-    ]);
+    try {
+      const next = await api("/api/letters");
+      // Celebrate letters that arrived since the last check (not on first load).
+      const ids = new Set(next.inbox.map((letter) => letter.id));
+      if (seenInbox.current && next.inbox.some((letter) => !seenInbox.current.has(letter.id))) {
+        showNotice("success", "newLetter", { partner: next.partner });
+        burstHearts(document.querySelector(".brand-mark"), 18);
+      }
+      seenInbox.current = ids;
+      setLetters(next); setLettersError("");
+    } catch (error) {
+      setLettersError(error.status === 401 ? "linkRequired" : "lettersFailed");
+    }
   }
 
   useEffect(() => {
     load();
-    const timer = setInterval(() => { if (!action.current) load(); }, 30000);
+    const timer = setInterval(() => { if (!action.current && !document.hidden) load(); }, 10000);
     return () => clearInterval(timer);
   }, []);
 
@@ -200,7 +193,7 @@ function App() {
   function showError(error) {
     setNotice(error.translationKey
       ? { type: "error", key: error.translationKey, values: error.values }
-      : { type: "error", text: error.message, key: error.message ? "" : "requestFailed" });
+      : { type: "error", key: "sendFailed" });
   }
 
   function beginAction(name) {
@@ -211,53 +204,26 @@ function App() {
 
   function finishAction() { action.current = false; setPendingAction(null); }
 
-  function checkRecipient() {
-    if (selectedContact && !addingRecipient) return true;
-    showNotice("error", "recipientRequired");
+  function writeFirst() {
+    showNotice("error", "messagePlaceholder", names);
     document.getElementById("compose").scrollIntoView({ behavior: "smooth", block: "start" });
-    recipientField.current?.focus({ preventScroll: true });
-    return false;
-  }
-
-  async function saveRecipient() {
-    const url = normalizeInstagramRecipient(recipientInput);
-    if (!url) { showNotice("error", "invalidRecipient"); recipientField.current?.focus(); return; }
-    if (!beginAction("recipient")) return;
-    try {
-      const existing = contacts.find((contact) => normalizeInstagramRecipient(contact.ig_url || "") === url);
-      if (!existing) {
-        const username = new URL(url).pathname.split("/")[1];
-        const result = await api("/api/contacts", { method: "POST", body: JSON.stringify({
-          first_name: username === "direct" ? "Instagram" : username, ig_url: url,
-        }) });
-        if (!result.ok) throw (result.error ? new Error(result.error) : translatedError("requestFailed"));
-      }
-      const next = await api("/api/contacts");
-      if (!Array.isArray(next)) throw translatedError("requestFailed");
-      setContacts(next); setContactsError(false); setContactsLoading(false);
-      setRecipientUrl(existing?.ig_url.trim() || url); setAddingRecipient(false); setRecipientInput("");
-      showNotice("success", "recipientSaved");
-    } catch (error) {
-      showError(error);
-    } finally {
-      finishAction();
-    }
+    document.getElementById("letter-text")?.focus({ preventScroll: true });
   }
 
   async function sendNow(surprise = false) {
-    if ((surprise && opened) || !checkRecipient() || !message.trim() || !beginAction(surprise ? "surprise" : "send")) return;
+    if (surprise && opened) return;
+    if (!message.trim()) { writeFirst(); return; }
+    if (!beginAction(surprise ? "surprise" : "send")) return;
     try {
-      const result = await api("/api/anniversary/send", {
-        method: "POST",
-        body: JSON.stringify({ contact_index: contactIndex, message, dry_run: false }),
-      });
-      if (!result.ok) throw (result.error ? new Error(result.error) : translatedError("sendFailed"));
+      await api("/api/letters", { method: "POST", body: JSON.stringify({ body: message }) });
       burstHearts(surprise ? surpriseButton.current : sendButton.current, surprise ? 24 : 14);
       if (surprise) {
         try { sessionStorage.setItem("anniversary-surprise-opened", "true"); } catch { /* Sending does not require storage. */ }
         setOpened(true);
       }
-      showNotice("success", surprise ? "surpriseOnWay" : "messageSent");
+      setMessage("");
+      showNotice("success", surprise ? "surpriseOnWay" : "messageSent", names);
+      await load();
     } catch (error) {
       showError(error);
     } finally {
@@ -265,28 +231,17 @@ function App() {
     }
   }
 
-  async function scheduleMessage(event) {
+  async function scheduleLetter(event) {
     event.preventDefault();
-    if (!checkRecipient() || !sendAt || !message.trim() || !beginAction("schedule")) return;
+    if (!message.trim()) { writeFirst(); return; }
+    if (!sendAt || !beginAction("schedule")) return;
     try {
-      const result = await api("/api/schedules", {
-        method: "POST",
-        body: JSON.stringify({
-          name: "One-year anniversary message",
-          schedule_type: "once",
-          run_at: new Date(sendAt).toISOString(),
-          contact_index: Number(contactIndex),
-          platforms: ["instagram"],
-          idea: message,
-          use_ai: false,
-          enabled: true,
-        }),
-      });
-      if (!result.ok) throw (result.error ? new Error(result.error) : translatedError("scheduleFailed"));
+      const deliverAt = new Date(sendAt);
+      await api("/api/letters", { method: "POST", body: JSON.stringify({ body: message, deliver_at: deliverAt.toISOString() }) });
       burstHearts(scheduleButton.current);
-      showNotice("success", "scheduled");
-      setSendAt("");
-      load();
+      showNotice("success", "scheduled", { ...names, time: deliverAt.toLocaleString(locales[language], { dateStyle: "medium", timeStyle: "short" }) });
+      setSendAt(""); setMessage("");
+      await load();
     } catch (error) {
       showError(error);
     } finally {
@@ -294,10 +249,10 @@ function App() {
     }
   }
 
-  async function cancelSchedule(id, row) {
+  async function cancelLetter(id, row) {
     try {
       await animateOut(row, { x: 30, rotation: 0 });
-      await api(`/api/schedules/${id}`, { method: "DELETE" });
+      await api(`/api/letters/${id}`, { method: "DELETE" });
       showNotice("success", "cancelled");
       await load();
     } catch (error) {
@@ -306,9 +261,18 @@ function App() {
     }
   }
 
-  const activeSchedules = schedules.filter((schedule) => schedule.enabled);
+  async function readLetter(letter) {
+    await api(`/api/letters/${letter.id}/read`, { method: "POST" });
+    setLetters((current) => ({
+      ...current,
+      unread: Math.max(0, current.unread - 1),
+      inbox: current.inbox.map((item) => item.id === letter.id ? { ...item, read_at: new Date().toISOString() } : item),
+    }));
+  }
 
-  useGSAP(() => { revealNew(".scheduled", { x: 24, y: 0 }); }, { scope: page, dependencies: [activeSchedules.length] });
+  const upcoming = (letters?.sent || []).filter((letter) => letter.deliver_at > letters.now).reverse();
+
+  useGSAP(() => { revealNew(".scheduled", { x: 24, y: 0 }); }, { scope: page, dependencies: [upcoming.length] });
   useGSAP(() => withMotion(() => {
     gsap.from(".notice.toast", { y: -14, autoAlpha: 0, scale: .97, duration: .45, ease: "back.out(2)" });
   }), { scope: page, dependencies: [notice.key, notice.text] });
@@ -332,9 +296,9 @@ function App() {
       <header className="hero">
         <div>
           <div className="breadcrumb"><span>{t("home")}</span><b>/</b> {t("anniversaryNote")}</div>
-          <p className="eyebrow">{t("fromYou")}</p>
+          <p className="eyebrow">{names.me ? t("fromYou", names) : t("anniversaryNote")}</p>
           <h1>{words(t("heading"))} <span className="hero-heart">♥</span></h1>
-          <p className="subtitle">{t("subtitle")}</p>
+          <p className="subtitle">{t("subtitle", names)}</p>
         </div>
         <div className="hero-actions">
           <div className="language-switch" role="group" aria-label={t("language")}>
@@ -346,15 +310,17 @@ function App() {
       </header>
 
       {(notice.key || notice.text) && <div role={notice.type === "error" ? "alert" : "status"} className={`notice toast ${notice.type}`}>{notice.key ? t(notice.key, notice.values) : notice.text}</div>}
+      {lettersError && <p className="notice error" role="alert">{t(lettersError)} {lettersError === "lettersFailed" && <button type="button" className="button secondary" onClick={load}>{t("retry")}</button>}</p>}
+      {letters && !canWrite && <p className="notice error" role="status">{t("noPartner", names)}</p>}
 
-      <LetterHero t={t}>
+      <LetterHero t={t} names={names}>
         <div className="letter-body">
           <div className="welcome-copy">
             <p className="eyebrow">{t("delivery")}</p>
             <h2>{t("sayIt")} <em>{t("heart")}</em></h2>
             <p>{t("welcome")}</p>
-            <div className="welcome-pills"><span>♡ {t("personal")}</span><span>✦ {t("private")}</span><span>◷ {t("onTime")}</span></div>
-            <button ref={surpriseButton} type="button" className="button surprise-button" onClick={() => sendNow(true)} disabled={opened || busy || contactsLoading || !message.trim()}>
+            <div className="welcome-pills"><span>♡ {t("personal", names)}</span><span>✦ {t("private")}</span><span>◷ {t("onTime")}</span></div>
+            <button ref={surpriseButton} type="button" className="button surprise-button" onClick={() => sendNow(true)} disabled={opened || busy || !canWrite}>
               {opened ? t("surpriseSent") : pendingAction === "surprise" ? t("sending") : t("sendSurprise")}
             </button>
           </div>
@@ -363,42 +329,32 @@ function App() {
       </LetterHero>
 
       <section className="mini-stats" aria-label={t("noteOverview")}>
-        <div><span className="stat-icon peach"><Icon /></span><div><b>{t("lovelyYear")}</b><small>{t("moreToCome")}</small></div></div>
-        <div><span className="stat-icon lavender"><Icon name="calendar" /></span><div><b>{t("scheduledCount", { count: activeSchedules.length })}</b><small>{t("lookForward")}</small></div></div>
-        <div><span className="stat-icon mint"><Icon name="instagram" /></span><div><b>{selectedContact ? t("recipientReady") : t("addRecipient")}</b><small>{selectedContact ? t("viaInstagram") : t("setupContact")}</small></div></div>
+        <div><span className="stat-icon peach"><Icon name="mail" /></span><div><b>{t("unreadCount", { count: letters?.unread || 0 })}</b><small>{t("unreadHint", names)}</small></div></div>
+        <div><span className="stat-icon lavender"><Icon name="calendar" /></span><div><b>{t("scheduledCount", { count: upcoming.length })}</b><small>{t("lookForward")}</small></div></div>
+        <div><span className="stat-icon mint"><Icon /></span><div><b>{t("writingTo", names)}</b><small>{t("onlyUs")}</small></div></div>
       </section>
 
+      <LetterBox t={t} language={language} letters={letters} onRead={readLetter} />
       <AnniversaryGallery apiBase={API_BASE} language={language} />
-      <LoveWords apiBase={API_BASE} language={language} suggestedThread={selectedContact?.ig_url?.trim()} />
+      <LoveWords apiBase={API_BASE} language={language} />
 
       <section className="grid">
-        <form id="compose" className="card composer reveal" onSubmit={scheduleMessage}>
+        <form id="compose" className="card composer reveal" onSubmit={scheduleLetter}>
           <div className="card-heading">
             <div>
-              <p className="eyebrow">{t("message")}</p>
+              <p className="eyebrow">{t("writingTo", names)}</p>
               <h2>{t("makePersonal")}</h2>
             </div>
             <div className="heart-mark"><Icon name="mail" /></div>
           </div>
 
-          <div className="recipient-picker">
-            <label htmlFor="instagram-recipient">{t("recipientLabel")}</label>
-            {contactsLoading ? <p className="private-note" role="status">{t("recipientsLoading")}</p>
-              : selectedContact && !addingRecipient ? <div className="recipient-selection"><select id="instagram-recipient" value={selectedContact.ig_url.trim()} disabled={busy} onChange={(event) => setRecipientUrl(event.target.value)}>{recipients.map((contact, index) => <option key={index} value={contact.ig_url.trim()}>{`${contact.first_name || ""} ${contact.last_name || ""}`.trim() || contact.ig_url}</option>)}</select><button type="button" className="button secondary" disabled={busy} onClick={() => setAddingRecipient(true)}>{t("newRecipient")}</button></div>
-                : <><input ref={recipientField} id="instagram-recipient" type="text" value={recipientInput} disabled={busy} onChange={(event) => setRecipientInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); saveRecipient(); } }} placeholder={t("recipientPlaceholder")} autoComplete="off" autoCapitalize="none" spellCheck={false} aria-describedby="recipient-help" /><p id="recipient-help" className="private-note">{t("recipientHelp")}</p><div className="recipient-actions"><button type="button" className="button secondary" disabled={busy || !recipientInput.trim()} onClick={saveRecipient}>{pendingAction === "recipient" ? t("savingRecipient") : t("saveRecipient")}</button>{selectedContact && <button type="button" className="button secondary" disabled={busy} onClick={() => setAddingRecipient(false)}>{t("cancel")}</button>}</div></>}
-            {contactsError && <p className="recipient-error" role="alert">{t("recipientsFailed")} <button type="button" disabled={busy} onClick={load}>{t("retry")}</button></p>}
-            <p className="private-note">{t("instagramLoginHint")} <a href={SETUP_URL} target="_blank" rel="noreferrer">{t("manageLogin")}</a></p>
-          </div>
-
-          <label>
-            {t("messageLabel")}
-            <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows="7" maxLength="2000" required />
-          </label>
+          <label htmlFor="letter-text">{t("messageLabel")}</label>
+          <textarea id="letter-text" value={message} onChange={(event) => setMessage(event.target.value)} rows="7" maxLength="2000" placeholder={t("messagePlaceholder", names)} />
           <div className="counter">{message.length}/2000</div>
 
           <div className="send-mode single-action">
-            <p className="private-note">{t("privateNote")}</p>
-            <button ref={sendButton} type="button" className="button secondary" onClick={() => sendNow()} disabled={busy || contactsLoading || !message.trim()}>
+            <p className="private-note">{t("privateNote", names)}</p>
+            <button ref={sendButton} type="button" className="button secondary" onClick={() => sendNow()} disabled={busy || !canWrite}>
               {pendingAction === "send" ? t("sending") : t("sendNote")}
             </button>
           </div>
@@ -408,7 +364,7 @@ function App() {
               {t("scheduleLabel")}
               <input type="datetime-local" value={sendAt} onChange={(event) => setSendAt(event.target.value)} required />
             </label>
-            <button ref={scheduleButton} className="button primary" disabled={busy || contactsLoading || !sendAt || !message.trim()}>
+            <button ref={scheduleButton} className="button primary" disabled={busy || !canWrite || !sendAt}>
               {pendingAction === "schedule" ? t("scheduling") : t("scheduleNote")}
             </button>
           </div>
@@ -416,17 +372,16 @@ function App() {
 
         <aside>
           <div className="card preview-card reveal">
-            <div className="card-heading"><div><p className="eyebrow">{t("preview")}</p><h2>{t("previewHeading")}</h2></div><span className="instagram-icon"><Icon name="instagram" /></span></div>
-            <div className="message-preview"><div className="preview-avatar">♥</div><div><strong>{selectedContact ? `${selectedContact.first_name || ""} ${selectedContact.last_name || ""}`.trim() || t("recipientFallback") : t("recipientFallback")}</strong><p>{message || t("previewPlaceholder")}</p><small>{t("instagramDM")}</small></div></div>
+            <div className="card-heading"><div><p className="eyebrow">{t("preview")}</p><h2>{t("previewHeading", names)}</h2></div><span className="instagram-icon"><Icon name="mail" /></span></div>
+            <div className="message-preview"><div className="preview-avatar">♥</div><div><strong>{t("fromName", { name: names.me || "♥" })}</strong><p>{message || t("messagePlaceholder", names)}</p><small>{t("toName", { name: names.partner })}</small></div></div>
           </div>
           <div id="upcoming" className="card upcoming reveal">
             <div className="card-heading"><div><p className="eyebrow">{t("calendar")}</p><h2>{t("upcoming")}</h2></div><span className="calendar"><Icon name="calendar" /></span></div>
-            {schedulesError && <p className="recipient-error" role="alert">{t("schedulesFailed")} <button type="button" disabled={busy} onClick={load}>{t("retry")}</button></p>}
-            {activeSchedules.length === 0 && <div className="empty-state"><EnvelopeIllustration /><strong>{t("upcomingEmpty")}</strong><p>{t("upcomingHint")}<br />{t("upcomingHintMore")}</p></div>}
-            {activeSchedules.map((schedule) => (
-              <div className="scheduled" key={schedule.id}>
-                <div><strong>{schedule.name === "One-year anniversary message" ? t("scheduleName") : schedule.name}</strong><span>{schedule.next_run ? new Date(schedule.next_run).toLocaleString(locales[language]) : t("pending")}</span></div>
-                <button aria-label={t("cancelSchedule")} onClick={(event) => cancelSchedule(schedule.id, event.currentTarget.closest(".scheduled"))}>×</button>
+            {upcoming.length === 0 && <div className="empty-state"><EnvelopeIllustration /><strong>{t("upcomingEmpty")}</strong><p>{t("upcomingHint")}<br />{t("upcomingHintMore", names)}</p></div>}
+            {upcoming.map((letter) => (
+              <div className="scheduled" key={letter.id}>
+                <div><strong>{letter.body.length > 60 ? `${letter.body.slice(0, 60)}…` : letter.body}</strong><span>{t("arrivesAt", { time: new Date(letter.deliver_at).toLocaleString(locales[language], { dateStyle: "medium", timeStyle: "short" }) })}</span></div>
+                <button aria-label={t("cancelSchedule")} onClick={(event) => cancelLetter(letter.id, event.currentTarget.closest(".scheduled"))}>×</button>
               </div>
             ))}
           </div>

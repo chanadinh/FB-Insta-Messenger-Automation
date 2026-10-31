@@ -53,6 +53,11 @@ def person_for(token: str | None) -> str | None:
     return row["name"] if row else None
 
 
+def people() -> list[str]:
+    with database() as db:
+        return [row["name"] for row in db.execute("SELECT name FROM people ORDER BY name")]
+
+
 def links_exist() -> bool:
     with database() as db:
         return bool(db.execute("SELECT COUNT(*) FROM people").fetchone()[0])

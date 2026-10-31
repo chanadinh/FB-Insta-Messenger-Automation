@@ -12,7 +12,7 @@ function rememberOpened(open) {
  * A sealed envelope that opens into the letter (`children`). Tapping the wax
  * seal cracks it, swings the flap open and lifts the letter out.
  */
-export default function LetterHero({ t, children }) {
+export default function LetterHero({ t, names, children }) {
   const scope = useRef(null);
   const timeline = useRef(null);
   const [open, setOpen] = useState(() => {
@@ -45,10 +45,10 @@ export default function LetterHero({ t, children }) {
   return <section ref={scope} className={`letter-hero ${open ? "is-open" : ""}`}>
     <FloatingHearts />
     <article className="letter-paper" aria-hidden={!open} inert={open ? undefined : ""}>
-      <p className="letter-to ink handwritten">{t("letterTo")}</p>
+      <p className="letter-to ink handwritten">{t("letterTo", names)}</p>
       {children}
       <div className="letter-footer">
-        <p className="letter-signoff ink handwritten">{t("letterSignoff")} ♥</p>
+        <p className="letter-signoff ink handwritten">{t("letterSignoff", names)} ♥</p>
         <button type="button" className="fold-button" onClick={() => toggle(false)}>{t("closeLetter")}</button>
       </div>
     </article>
@@ -61,7 +61,7 @@ export default function LetterHero({ t, children }) {
         <path d="M0 0h100L50 100Z" />
       </svg>
       <div className="envelope-address">
-        <p className="handwritten">{t("letterTo")}</p>
+        <p className="handwritten">{t("letterTo", names)}</p>
         <span /><span />
       </div>
       <div className="stamp" aria-hidden="true">
