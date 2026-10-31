@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import os
 import socket
 import time
@@ -17,6 +18,13 @@ INSTAGRAM_LOGIN = f"{INSTAGRAM_URL}/accounts/login/"
 PROFILES_PATH = data_path("profiles.json")
 
 _pw_instance = None
+_browser_lock = asyncio.Lock()
+_active_context = None
+_session_status_cache: dict[str, dict] = {}
+
+
+def is_browser_busy() -> bool:
+    return _browser_lock.locked()
 
 _BROWSER_ARGS = [
     "--disable-blink-features=AutomationControlled",
@@ -200,6 +208,20 @@ async def _open_persistent_context(headless: bool, profile_name: str | None = No
 # ── Public API ─────────────────────────────────────────────────
 
 async def check_session_status(profile_name: str | None = None) -> dict:
+    profile_name = profile_name or get_active_profile()
+    if is_browser_busy():
+        return {
+            **_session_status_cache.get(profile_name, {"fb": False, "ig": False}),
+            "busy": True,
+            "reason": "Browser is in use; session check deferred.",
+        }
+    async with _browser_lock:
+        status = await _check_session_status_locked(profile_name)
+        _session_status_cache[profile_name] = status
+        return status
+
+
+async def _check_session_status_locked(profile_name: str | None = None) -> dict:
     if profile_name is None:
         profile_name = get_active_profile()
     profile_dir = get_profile_dir(profile_name)
@@ -252,12 +274,40 @@ async def launch_browser(
             f"No browser profile for '{profile_name}'. Use 'Setup Login' first."
         )
 
-    context = await _open_persistent_context(headless, profile_name)
-    page = context.pages[0] if context.pages else await context.new_page()
-    return context, page
+    global _active_context
+    await _browser_lock.acquire()
+    context = None
+    try:
+        context = await _open_persistent_context(headless, profile_name)
+        page = context.pages[0] if context.pages else await context.new_page()
+        _active_context = context
+        return context, page
+    except BaseException:
+        try:
+            if context:
+                await context.close()
+        finally:
+            try:
+                await _stop_playwright()
+            finally:
+                _browser_lock.release()
+        raise
 
 
 async def setup_login(
+    platform: str = "facebook",
+    profile_name: str | None = None,
+    *,
+    debug_port: int | None = None,
+    wait_seconds: int = 600,
+) -> None:
+    if is_browser_busy():
+        raise RuntimeError("Browser is busy; finish the current operation before logging in")
+    async with _browser_lock:
+        await _setup_login_locked(platform, profile_name, debug_port=debug_port, wait_seconds=wait_seconds)
+
+
+async def _setup_login_locked(
     platform: str = "facebook",
     profile_name: str | None = None,
     *,
@@ -364,5 +414,15 @@ async def setup_login(
 
 
 async def close_browser(context: BrowserContext) -> None:
-    await context.close()
-    await _stop_playwright()
+    global _active_context
+    if context is not _active_context:
+        await context.close()
+        return
+    try:
+        await context.close()
+    finally:
+        try:
+            await _stop_playwright()
+        finally:
+            _active_context = None
+            _browser_lock.release()

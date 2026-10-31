@@ -13,7 +13,7 @@ from typing import Callable
 
 from fb_automation.browser import (
     launch_browser, close_browser, CookieAuthError, get_active_profile,
-    check_session_status, setup_login,
+    is_browser_busy, check_session_status, setup_login,
 )
 from fb_automation.messenger import send_message, send_follow_up, delay_between_messages, collect_fb_replies
 from fb_automation.instagram import send_ig_message, send_ig_follow_up, collect_ig_replies, collect_ig_love_words
@@ -74,7 +74,7 @@ class AutomationEngine:
         self._busy_lock = asyncio.Lock()
 
     def is_busy(self) -> bool:
-        return self._busy_lock.locked()
+        return self._busy_lock.locked() or is_browser_busy()
 
     async def check_session(self, profile_name: str) -> dict:
         """Check logins without restarting a browser another task is using."""
