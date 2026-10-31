@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "./Illustrations";
+import { gsap, MOTION_OK, revealNew, ScrollTrigger, useGSAP, withMotion } from "./motion";
 import { locales, translate } from "./translations";
 
 const TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -45,6 +46,7 @@ export default function AnniversaryGallery({ apiBase, language }) {
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [selectedName, setSelectedName] = useState(null);
   const input = useRef(null);
+  const section = useRef(null);
   const dialog = useRef(null);
   const uploading = useRef(false);
   const requestId = useRef(0);
@@ -123,7 +125,38 @@ export default function AnniversaryGallery({ apiBase, language }) {
   }
 
   const count = photos?.length || 0;
-  return <section id="gallery" className={`card gallery-card album ${dragging ? "is-dragging" : ""}`} aria-labelledby="album-title"
+  const shown = Math.min(count, visible);
+
+  // New photos float in; on a mouse, each tile tilts toward the pointer.
+  useGSAP(() => {
+    revealNew(".album-grid .album-tile:not(.album-skeleton)", { rotation: () => gsap.utils.random(-3, 3) });
+    ScrollTrigger.refresh();
+  }, { scope: section, dependencies: [shown, photos === null] });
+  useGSAP(() => withMotion(() => {
+    const tilt = (event) => {
+      const tile = event.target.closest?.(".album-tile");
+      if (!tile) return;
+      const box = tile.getBoundingClientRect();
+      gsap.to(tile, {
+        rotationY: ((event.clientX - box.left) / box.width - .5) * 10,
+        rotationX: -((event.clientY - box.top) / box.height - .5) * 10,
+        transformPerspective: 700, duration: .4, ease: "power2.out", overwrite: "auto",
+      });
+    };
+    const settle = (event) => {
+      const tile = event.target.closest?.(".album-tile");
+      if (tile && !tile.contains(event.relatedTarget)) gsap.to(tile, { rotationX: 0, rotationY: 0, duration: .7, ease: "elastic.out(1, .5)" });
+    };
+    const element = section.current;
+    element.addEventListener("pointermove", tilt);
+    element.addEventListener("pointerout", settle);
+    return () => { element.removeEventListener("pointermove", tilt); element.removeEventListener("pointerout", settle); };
+  }, `${MOTION_OK} and (hover: hover) and (pointer: fine)`), { scope: section });
+  useGSAP(() => withMotion(() => {
+    if (selectedName) gsap.from(".album-viewer", { scale: .94, autoAlpha: 0, duration: .45, ease: "power3.out" });
+  }), { scope: section, dependencies: [!!selectedName] });
+
+  return <section ref={section} id="gallery" className={`card gallery-card album reveal ${dragging ? "is-dragging" : ""}`} aria-labelledby="album-title"
     onDragOver={(event) => { event.preventDefault(); if (event.dataTransfer.types.includes("Files")) setDragging(true); }}
     onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
     onDrop={(event) => { event.preventDefault(); setDragging(false); upload(event.dataTransfer.files); }}>
