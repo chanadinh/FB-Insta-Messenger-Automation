@@ -51,7 +51,7 @@ export function useIntro(scope, dependencies = []) {
       .from(".hero h1 .word", { yPercent: 110, autoAlpha: 0, rotation: 4, stagger: .06, duration: .9 }, "<.1")
       .from(".hero-heart", { scale: 0, rotation: -60, duration: .9, ease: "elastic.out(1, .45)" }, "<.35")
       .from(".hero .subtitle, .hero-actions > *", { y: 12, autoAlpha: 0, stagger: .08 }, "<.1")
-      .from(".welcome-card", { y: 34, scale: .97, autoAlpha: 0, duration: 1 }, "<.05")
+      .from(".letter-hero", { y: 34, scale: .97, autoAlpha: 0, duration: 1 }, "<.05")
       .from(".mini-stats > div", { y: 22, autoAlpha: 0, stagger: .1, duration: .7 }, "<.3");
 
     // A gentle double heartbeat on the title heart, then a pause.

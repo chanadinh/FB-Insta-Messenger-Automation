@@ -1,13 +1,15 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
+import "./letter.css";
 import Mailbox from "./Mailbox";
 import AnniversaryGallery from "./AnniversaryGallery";
 import LoveWords from "./LoveWords";
 import { Icon, EnvelopeIllustration } from "./Illustrations";
 import { getInitialLanguage, LANGUAGE_STORAGE_KEY, locales, translate } from "./translations";
 import { normalizeInstagramRecipient } from "./instagramRecipient";
-import { AmbientBackdrop, FloatingHearts } from "./Decor";
+import { AmbientBackdrop } from "./Decor";
+import LetterHero from "./LetterHero";
 import {
   animateOut, burstHearts, gsap, motionAllowed, revealNew, ScrollTrigger, useGSAP,
   useIntro, useMagnetic, useWordsRefresh, withMotion, words,
@@ -345,19 +347,20 @@ function App() {
 
       {(notice.key || notice.text) && <div role={notice.type === "error" ? "alert" : "status"} className={`notice toast ${notice.type}`}>{notice.key ? t(notice.key, notice.values) : notice.text}</div>}
 
-      <section className={`welcome-card ${opened ? "opened" : ""}`}>
-        <FloatingHearts />
-        <div className="welcome-copy">
-          <p className="eyebrow">{t("delivery")}</p>
-          <h2>{t("sayIt")} <em>{t("heart")}</em></h2>
-          <p>{t("welcome")}</p>
-          <div className="welcome-pills"><span>♡ {t("personal")}</span><span>✦ {t("private")}</span><span>◷ {t("onTime")}</span></div>
-          <button ref={surpriseButton} type="button" className="button surprise-button" onClick={() => sendNow(true)} disabled={opened || busy || contactsLoading || !message.trim()}>
-            {opened ? t("surpriseSent") : pendingAction === "surprise" ? t("sending") : t("sendSurprise")}
-          </button>
+      <LetterHero t={t}>
+        <div className="letter-body">
+          <div className="welcome-copy">
+            <p className="eyebrow">{t("delivery")}</p>
+            <h2>{t("sayIt")} <em>{t("heart")}</em></h2>
+            <p>{t("welcome")}</p>
+            <div className="welcome-pills"><span>♡ {t("personal")}</span><span>✦ {t("private")}</span><span>◷ {t("onTime")}</span></div>
+            <button ref={surpriseButton} type="button" className="button surprise-button" onClick={() => sendNow(true)} disabled={opened || busy || contactsLoading || !message.trim()}>
+              {opened ? t("surpriseSent") : pendingAction === "surprise" ? t("sending") : t("sendSurprise")}
+            </button>
+          </div>
+          <CatIllustration t={t} />
         </div>
-        <CatIllustration t={t} />
-      </section>
+      </LetterHero>
 
       <section className="mini-stats" aria-label={t("noteOverview")}>
         <div><span className="stat-icon peach"><Icon /></span><div><b>{t("lovelyYear")}</b><small>{t("moreToCome")}</small></div></div>
