@@ -10,7 +10,9 @@ from typing import Callable
 
 from playwright.async_api import Page
 
+from fb_automation.logger import normalize_message_text, sent_message_matcher
 from fb_automation.paths import data_path
+from fb_automation.love_words import LoveWordsError, normalize_thread
 
 INSTAGRAM_URL = "https://www.instagram.com"
 NEW_DM_URL = f"{INSTAGRAM_URL}/direct/new/"
@@ -296,28 +298,31 @@ async def _type_and_send(page: Page, message: str, emit: EmitFn = None) -> bool:
 
         await page.wait_for_timeout(random.randint(800, 1500))
 
-        sent = False
         await page.keyboard.press("Enter")
         await page.wait_for_timeout(1500)
 
-        # Some IG builds ignore Enter in headless — click Send
-        for sel in (
-            'div[role="button"]:has-text("Send")',
-            'button:has-text("Send")',
-            'div[role="button"]:has-text("Gửi")',
-            'button:has-text("Gửi")',
-        ):
-            try:
-                btn = await page.query_selector(sel)
-                if btn and await btn.is_visible():
-                    await btn.click()
-                    sent = True
-                    break
-            except Exception:
-                continue
+        # Some IG builds ignore Enter in headless — click Send only if the text is still there,
+        # so a message Enter already sent is not sent twice.
+        if await _composer_text(page, input_box, input_selectors):
+            for sel in (
+                'div[role="button"]:has-text("Send")',
+                'button:has-text("Send")',
+                'div[role="button"]:has-text("Gửi")',
+                'button:has-text("Gửi")',
+            ):
+                try:
+                    btn = await page.query_selector(sel)
+                    if btn and await btn.is_visible():
+                        await btn.click()
+                        break
+                except Exception:
+                    continue
+            await page.wait_for_timeout(1500)
 
-        if not sent:
-            sent = True  # Enter was pressed; assume sent if no explicit Send button
+        if await _composer_text(page, input_box, input_selectors):
+            _emit(emit, "error", "Instagram did not accept the message (it is still in the composer).")
+            await _save_debug(page, "ig_send_unconfirmed")
+            return False
 
         await page.wait_for_timeout(random.randint(2000, 3000))
         _emit(emit, "ok", "Message sent.")
@@ -329,8 +334,77 @@ async def _type_and_send(page: Page, message: str, emit: EmitFn = None) -> bool:
         return False
 
 
+async def _composer_text(page: Page, input_box, selectors: list[str]) -> str:
+    """Text left in the message box; empty once Instagram has taken the message."""
+    read = "el => (el.tagName.toLowerCase() === 'textarea' ? el.value : el.innerText) || ''"
+    try:
+        return (await input_box.evaluate(read)).strip()
+    except Exception:
+        pass  # Instagram re-rendered the composer; read the current one instead.
+    for sel in selectors:
+        try:
+            box = await page.query_selector(sel)
+            if box:
+                return (await box.evaluate(read)).strip()
+        except Exception:
+            continue
+    return ""
+
+
 async def send_ig_follow_up(page: Page, message: str, emit: EmitFn = None) -> bool:
     return await _type_and_send(page, message, emit)
+
+
+async def collect_ig_love_words(page: Page, thread_url: str) -> list[str]:
+    """Read both sides of the loaded chat. Never interact with its composer."""
+    url = normalize_thread(thread_url)
+    await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    if await _ig_needs_login(page):
+        raise LoveWordsError("login_required")
+    for label in ("Not Now", "Không phải bây giờ", "Lúc khác"):
+        button = page.get_by_role("button", name=label, exact=True).first
+        if await button.is_visible():
+            await button.click()
+    try:
+        await page.wait_for_selector(
+            'main [role="row"], [role="main"] [role="row"], '
+            'main [data-message-id], [role="main"] [data-message-id], '
+            'main [role="grid"], [role="main"] [role="grid"]',
+            timeout=20000,
+        )
+    except Exception as error:
+        if await _ig_needs_login(page):
+            raise LoveWordsError("login_required") from error
+        raise LoveWordsError("chat_unavailable") from error
+    try:
+        opened_thread = normalize_thread(page.url)
+    except (LoveWordsError, ValueError) as error:
+        raise LoveWordsError("chat_unavailable") from error
+    if opened_thread != url:
+        raise LoveWordsError("chat_unavailable")
+    result = await page.evaluate("""() => {
+        const root = document.querySelector('[role="main"]') || document.querySelector('main');
+        if (!root) return { readable: false, texts: [] };
+        const visible = element => {
+            const box = element.getBoundingClientRect(), style = getComputedStyle(element);
+            return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+        };
+        const rows = [...root.querySelectorAll('[role="row"], [data-message-id]')]
+            .filter(row => visible(row) && !row.querySelector('[role="row"], [data-message-id]'));
+        const grid = root.querySelector('[role="grid"]');
+        const scopes = rows.length ? rows.slice(-120) : grid ? [grid] : [];
+        const texts = scopes.flatMap(scope => [
+            ...(scope.matches('[dir="auto"]') ? [scope] : []), ...scope.querySelectorAll('[dir="auto"]')
+        ])
+            .filter(element => visible(element) && !element.querySelector('[dir="auto"]')
+                && !element.closest('header, nav, button, a, time, [role="button"], [contenteditable="true"]'))
+            .map(element => (element.innerText || '').trim())
+            .filter(text => text.length >= 2 && text.length <= 2000);
+        return { readable: scopes.length > 0, texts: [...new Set(texts)].slice(-120) };
+    }""")
+    if not result.get("readable"):
+        raise LoveWordsError("chat_unavailable")
+    return result["texts"]
 
 
 async def collect_ig_replies(
@@ -361,7 +435,7 @@ async def collect_ig_replies(
 
 
 async def _collect_visible_thread_text(page: Page, sent_messages: list[str]) -> list[str]:
-    sent_norm = {_normalize_message_text(msg) for msg in sent_messages if msg}
+    is_sent = sent_message_matcher(sent_messages)
     ignored = {
         "",
         "message",
@@ -387,24 +461,13 @@ async def _collect_visible_thread_text(page: Page, sent_messages: list[str]) -> 
     seen: set[str] = set()
     for raw in texts[-80:]:
         text = " ".join(str(raw).split())
-        norm = _normalize_message_text(text)
+        norm = normalize_message_text(text)
         if len(text) < 2 or len(text) > 1000:
             continue
-        if norm in ignored or norm in sent_norm:
-            continue
-        if any(norm and norm in sent for sent in sent_norm):
+        if norm in ignored or is_sent(text):
             continue
         if norm in seen:
             continue
         seen.add(norm)
         replies.append(text)
     return replies[-20:]
-
-
-def _normalize_message_text(text: str) -> str:
-    cleaned = text
-    for prefix in ("[IG]", "[FB]"):
-        cleaned = cleaned.replace(prefix, "")
-    if "] " in cleaned and "[follow-up" in cleaned:
-        cleaned = cleaned.split("] ", 1)[1]
-    return " ".join(cleaned.lower().split())

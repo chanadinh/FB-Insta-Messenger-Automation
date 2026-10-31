@@ -25,8 +25,8 @@ The dashboard requires an access token. Set `APP_AUTH_TOKEN` before starting the
 server, or read the automatically generated token from `.dashboard_token` under
 `APP_DATA_DIR` (the current directory by default). In Docker, retrieve it with
 `docker compose exec app cat /data/.dashboard_token`. Sign in at `/login`.
-API clients can send `Authorization: Bearer <token>`. Browser sessions use an
-HttpOnly cookie; changing the token invalidates existing sessions.
+API clients can send a bearer token in the `Authorization` header. Browser
+sessions use an HttpOnly cookie; changing the token invalidates existing sessions.
 
 Local startup and Docker port publishing bind to `127.0.0.1` by default. For
 remote Docker access, set `BIND_ADDRESS=0.0.0.0` and serve the dashboard through
@@ -34,6 +34,86 @@ HTTPS. Keep the token file private and outside source control.
 
 Run regression tests with `pip install -r requirements-dev.txt` followed by
 `python -m unittest discover -s tests -v`.
+
+### Separate React anniversary dashboard
+
+The focused anniversary dashboard lives in [`dashboard/`](dashboard/) and talks to the
+same FastAPI server. Run the server first, then in a second terminal:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+When served by the FastAPI/Docker deployment, open the anniversary message dashboard
+at **`/anniversary/`**. The **`/mailbox/`** path remains the private mailbox page.
+
+Use the **English / Tiếng Việt** switch in the anniversary dashboard header to
+change the interface language. Vietnamese is the default; your choice is saved in
+this browser. The starter
+message follows the selected language until you edit it; your own draft is preserved
+when switching languages.
+
+The dashboard bundles **Be Vietnam Pro** for body text and **Playfair Display**
+for headings, including Vietnamese glyphs, so fonts load from your server.
+
+Before sending, choose an **Instagram recipient** in the message card, or enter an
+`@username`, Instagram profile URL, or direct conversation link and click **Save
+recipient**. Use **Manage contacts and Instagram login** to sign in on the server
+if needed. Sending a note does not require a scheduled send time.
+
+The **Words we keep / Những lời thương giữ lại** section can collect loving words
+from one Instagram conversation. Paste its full `/direct/t/.../` link, save it,
+and click **Find loving words / Gom lời yêu thương**. Enable automatic collection
+in this section to check every five minutes while the server runs. The collector
+reads recent loaded text from both sides and never composes or sends a message.
+
+Detection runs locally for common English and Vietnamese expressions, including
+unaccented text and slang such as `vk`, `ck`, `iu`, `love u`, `luv u`, and `miss u`.
+The word `u` alone is not considered romantic. Matches are suggestions; remove
+anything that does not fit, and it stays removed on future scans. Identical
+phrases are saved once per conversation and browser profile. This is a recent
+text collection, not an import of the entire chat history.
+
+Kept words and opt-in collection settings persist in `APP_DATA_DIR/love_words.sqlite3`.
+No external AI service receives the chat text. Collection uses the configured
+Instagram browser profile and shares the automation lock with sending; if it is
+busy, try again after the current action finishes. The saved date is when a
+phrase was collected, not its original Instagram timestamp.
+
+Open the Vite URL (usually **http://localhost:5173**). Set `VITE_API_BASE_URL` if the
+server is not at `http://127.0.0.1:8000`; when hosting the dashboard on another origin,
+set the server's comma-separated `DASHBOARD_ORIGINS` environment variable as well.
+
+To start both services with one command on Linux/macOS:
+
+```bash
+./scripts/run-dev.sh
+```
+
+The script starts the backend at `http://127.0.0.1:8000` and the React dashboard at
+`http://127.0.0.1:5173`. Press `Ctrl+C` to stop both processes.
+
+The React dashboard can preview or send an Instagram DM immediately and can create a
+persistent one-time schedule. The server must remain running at the scheduled time,
+and Instagram must be logged in through the existing **Setup Login** flow.
+
+It also includes a recipient-facing **Our memory gallery**. Use **Add photos** to
+import JPG, PNG, WEBP, or GIF memories (up to 10 MB each) to the server. Gallery
+files are stored under `APP_DATA_DIR/gallery` and are served through the gallery
+API/static path.
+
+The anniversary gallery loads independently, shows soft placeholders while photos
+arrive, and keeps the album visible during background refreshes. A featured photo
+layout, **More memories** button, and keyboard-accessible photo viewer keep larger
+albums easy to browse. Drop photos onto the album to upload them.
+
+Grid previews are generated as cached WebP images (up to 960 px) under
+`APP_DATA_DIR/gallery/.thumbnails`; opening a photo displays the original. Existing
+uploads get previews automatically. Local installations need the updated Python
+dependencies (`pip install -r requirements.txt`); Docker installs them on rebuild.
+
 
 ### 2. Browser profiles and login
 
@@ -73,6 +153,10 @@ John,Doe,https://www.facebook.com/messages/t/...,https://www.instagram.com/direc
 
 - **openai_api_key** (optional): if set, the engine generates follow-up messages after a successful send; **follow_up_*** and **chat_tone** control count, spacing, and style.
 - **dry_run**: log what would be sent without opening a browser (no login required).
+- **min_delay_seconds / max_delay_seconds**: randomized spacing between contacts
+  in dashboard runs. **max_concurrent_contacts** caps active contacts (default 2,
+  maximum 10); each contact can use one tab per platform. Stop interrupts pending
+  contact and follow-up delays. Set **follow_up_count** to 0 to disable follow-ups.
 
 ### 5. Run automation
 
@@ -110,6 +194,9 @@ Open the **Reminders** tab in the dashboard (or use **`/api/schedules`**). Creat
 
 Jobs run in the background while `server.py` is up. Use **Run now** to test. Scheduled sends appear in the live log and `message_log.csv`.
 
+The API also accepts `schedule_type: "once"` with an ISO `run_at` value for a
+single future send. One-time jobs disable themselves after execution.
+
 ## Files
 
 | Path | Purpose |
@@ -138,6 +225,67 @@ docker compose up -d
 ```
 
 Open **http://localhost:8000**. Data persists in the **`fb-automation-data`** Docker volume.
+
+### Cloudflare Tunnel
+
+Cloudflare Tunnel can publish the Docker dashboard without opening port 8000 to the
+internet or configuring router port forwarding. This uses a remotely managed tunnel
+token; keep the token private and do not commit it.
+
+1. In the [Cloudflare dashboard](https://one.dash.cloudflare.com/), open **Networks →
+   Tunnels**, create a tunnel, and choose **Docker** as the connector.
+2. Add a public hostname (for example, `dashboard.example.com`) and set the service
+   URL to `http://app:8000`. The hostname must use a domain managed in your
+   Cloudflare account.
+3. On the machine running this Compose project, export the connector token from the
+   install command shown by Cloudflare:
+
+   ```bash
+   export CLOUDFLARE_TUNNEL_TOKEN='paste-the-token-here'
+   ```
+
+4. Start the app and tunnel together:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
+   ```
+
+   To make the setting persistent across reboots, put
+   `CLOUDFLARE_TUNNEL_TOKEN=...` in an uncommitted `.env` file beside the Compose
+   files. `.env` is ignored by Git.
+
+5. Create the two private dashboard links (use your Cloudflare hostname):
+
+   ```bash
+   docker compose exec app python -m fb_automation.access --base-url https://dashboard.example.com --names Anh Em
+   ```
+
+   Send each person their own link. Opening it once lets that browser in for a
+   year; there is no account or password to enter. Everyone else sees a
+   "private link" page. Links are printed only once.
+
+   - Replace both links (old ones stop working): add `--rotate`.
+   - Remove one person: `docker compose exec app python -m fb_automation.access --revoke Em`.
+   - A link works for whoever opens it, so send it privately. It is tied to the
+     browser it was opened in, not to an Instagram account; opening it in a new
+     browser or after clearing cookies needs the link again.
+
+   Optionally set `DASHBOARD_PASSWORD` (and `DASHBOARD_USER`, default `admin`) in
+   `.env` for a password fallback. The tunnel Compose file keeps the dashboard
+   closed until a link or password exists. `/mailbox/` keeps its own links.
+
+Check that both containers are running with `docker compose ps` and open the
+Cloudflare hostname. WebSockets and gallery uploads are routed through the same
+hostname. Stop the tunnel with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tunnel.yml down
+```
+
+Do not use `cloudflared tunnel --url http://localhost:8000` for this deployment:
+that creates a temporary Quick Tunnel and is not a stable hostname or access
+control boundary. Cloudflare Access is not needed with the private links above;
+adding it would make both people sign in again.
 
 ### CI/CD (GitHub Actions)
 

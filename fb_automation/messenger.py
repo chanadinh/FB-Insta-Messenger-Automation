@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -9,9 +10,13 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import Page
 
+from fb_automation.logger import normalize_message_text, sent_message_matcher
 from fb_automation.paths import data_path
 
 MESSENGER_URL = "https://www.facebook.com/messages/t/"
+# Rows Facebook labels as ours ("You sent …", "Sent by you"); a bare "you" also
+# appears in partners' messages and names, so it is not enough on its own.
+_OWN_MESSAGE_ARIA = re.compile(r"^\s*you\b|\b(?:you sent|sent by you)\b", re.IGNORECASE)
 EmitFn = Callable[[str, str], None] | None
 
 
@@ -148,15 +153,15 @@ async def _type_and_send_current_thread(page: Page, message: str, emit: EmitFn =
         return False
 
     try:
+        # Count existing bubbles before typing; afterwards the composer itself matches.
+        before_count = await page.get_by_text(message, exact=True).count()
         await input_box.click()
         await page.wait_for_timeout(random.randint(500, 1000))
         await page.keyboard.insert_text(message)
         await page.wait_for_timeout(random.randint(800, 1500))
-        await page.keyboard.press("Enter")
-        await page.wait_for_timeout(1500)
 
+        clicked_send = False
         for sel in (
-            'div[aria-label="Press Enter to send"]',
             'div[aria-label="Send"]',
             'div[aria-label*="Send"]',
             'div[role="button"]:has-text("Send")',
@@ -167,11 +172,32 @@ async def _type_and_send_current_thread(page: Page, message: str, emit: EmitFn =
                 btn = await page.query_selector(sel)
                 if btn and await btn.is_visible():
                     await btn.click()
+                    clicked_send = True
                     break
             except Exception:
                 continue
 
-        await page.wait_for_timeout(random.randint(2000, 3000))
+        if not clicked_send:
+            await page.keyboard.press("Enter")
+
+        deadline = asyncio.get_running_loop().time() + 6
+        delivered = False
+        while asyncio.get_running_loop().time() < deadline:
+            await page.wait_for_timeout(500)
+            try:
+                composer_text = await input_box.text_content()
+                composer_value = await input_box.get_attribute("value")
+                current_count = await page.get_by_text(message, exact=True).count()
+                if (composer_text or composer_value or "").strip() == "" and current_count > before_count:
+                    delivered = True
+                    break
+            except Exception:
+                break
+
+        if not delivered:
+            _emit(emit, "error", "Facebook did not confirm that the message was sent.")
+            await _save_debug(page, "fb_send_unconfirmed")
+            return False
         _emit(emit, "ok", "Message sent.")
         return True
     except Exception as e:
@@ -247,7 +273,7 @@ async def collect_fb_replies(
         await _save_debug(page, "fb_login_required")
         return []
 
-    sent_norm = {_normalize_message_text(msg) for msg in sent_messages or [] if msg}
+    is_sent = sent_message_matcher(sent_messages or [])
     ignored = {
         "",
         "message",
@@ -259,38 +285,32 @@ async def collect_fb_replies(
         "view profile",
         "messenger",
     }
-    texts = await page.evaluate(
-        """() => Array.from(document.querySelectorAll('[role="main"] div[dir="auto"], [role="main"] span[dir="auto"], div[aria-label*="Messages"] div[dir="auto"], div[aria-label*="Messages"] span[dir="auto"]'))
+    messages = await page.evaluate(
+        """() => Array.from(document.querySelectorAll('[role="main"] [role="row"], [role="main"] [data-scope="messages_table"] [dir="auto"]'))
           .filter((el) => {
             const style = window.getComputedStyle(el);
             const rect = el.getBoundingClientRect();
             return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
           })
-          .map((el) => el.innerText || el.textContent || '')"""
+          .map((el) => ({
+            text: el.innerText || el.textContent || '',
+            aria: el.getAttribute('aria-label') || '',
+          }))"""
     )
 
     replies: list[str] = []
     seen: set[str] = set()
-    for raw in texts[-80:]:
-        text = " ".join(str(raw).split())
-        norm = _normalize_message_text(text)
+    for raw in messages[-80:]:
+        text = " ".join(str(raw.get("text", "")).split())
+        norm = normalize_message_text(text)
         if len(text) < 2 or len(text) > 1000:
             continue
-        if norm in ignored or norm in sent_norm:
+        if _OWN_MESSAGE_ARIA.search(str(raw.get("aria", ""))):
             continue
-        if any(norm and norm in sent for sent in sent_norm):
+        if norm in ignored or is_sent(text):
             continue
         if norm in seen:
             continue
         seen.add(norm)
         replies.append(text)
     return replies[-20:]
-
-
-def _normalize_message_text(text: str) -> str:
-    cleaned = text
-    for prefix in ("[IG]", "[FB]"):
-        cleaned = cleaned.replace(prefix, "")
-    if "] " in cleaned and "[follow-up" in cleaned:
-        cleaned = cleaned.split("] ", 1)[1]
-    return " ".join(cleaned.lower().split())

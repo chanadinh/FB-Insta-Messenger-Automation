@@ -18,6 +18,7 @@ from fb_automation.templates import render_message
 
 SCHEDULES_PATH = data_path("schedules.json")
 TICK_SECONDS = 30
+RETRY_DELAY = timedelta(minutes=15)
 
 EventCallback = Callable[[dict], None]
 
@@ -129,6 +130,11 @@ def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
     now = after.astimezone(tz) if after and after.tzinfo else (after.replace(tzinfo=tz) if after else datetime.now(tz))
     schedule_type = job.get("schedule_type", "daily")
 
+    if schedule_type == "once":
+        run_at = job.get("run_at")
+        if not run_at:
+            return now
+        return _parse_datetime(run_at, tz_name)
     if schedule_type == "interval":
         hours = max(1, int(job.get("interval_hours", 1)))
         last = job.get("last_run")
@@ -151,8 +157,15 @@ def compute_next_run(job: dict, *, after: datetime | None = None) -> datetime:
 def validate_job(job: dict) -> str | None:
     if not job.get("name", "").strip():
         return "Name is required"
-    if job.get("schedule_type") not in ("daily", "interval"):
-        return "schedule_type must be 'daily' or 'interval'"
+    if job.get("schedule_type") not in ("daily", "interval", "once"):
+        return "schedule_type must be 'daily', 'interval', or 'once'"
+    if job.get("schedule_type") == "once":
+        if not job.get("run_at"):
+            return "run_at is required for one-time schedules"
+        try:
+            _parse_datetime(job["run_at"], job.get("timezone"))
+        except (TypeError, ValueError):
+            return "run_at must be a valid ISO datetime"
     if job.get("schedule_type") == "interval":
         hours = job.get("interval_hours", 0)
         if not isinstance(hours, (int, float)) or hours < 1:
@@ -188,6 +201,7 @@ def normalize_job(raw: dict, existing: dict | None = None) -> dict:
         "hour": int(raw.get("hour", base.get("hour", 9))),
         "minute": int(raw.get("minute", base.get("minute", 0))),
         "interval_hours": int(raw.get("interval_hours", base.get("interval_hours", 4))),
+        "run_at": raw.get("run_at", base.get("run_at")),
         "contact_index": int(raw.get("contact_index", base.get("contact_index", 0))),
         "platforms": list(raw.get("platforms", base.get("platforms", ["instagram"]))),
         "idea": raw.get("idea", base.get("idea", "")).strip(),
@@ -285,18 +299,52 @@ class JobScheduler:
     def toggle_job(self, job_id: str, enabled: bool) -> dict:
         return self.update_job(job_id, {"enabled": enabled})
 
+    def contact_deleted(self, index: int) -> None:
+        """Keep jobs pointing at the same people after a contact row is removed."""
+        data = load_schedules()
+        changed = False
+        for job in data.get("jobs", []):
+            idx = job.get("contact_index")
+            if not isinstance(idx, int):
+                continue
+            if idx == index:
+                if job.get("enabled"):
+                    job["enabled"] = False
+                    self._emit("warn", f"Disabled '{job['name']}' — its contact was deleted")
+                changed = True
+            elif idx > index:
+                job["contact_index"] = idx - 1
+                changed = True
+        if changed:
+            save_schedules(data)
+
+    def _store_job_run(self, job: dict, **fields: Any) -> None:
+        """Merge run results into the stored job so edits made meanwhile survive."""
+        data = load_schedules()
+        for stored in data.get("jobs", []):
+            if stored["id"] == job["id"]:
+                stored.update(fields)
+                save_schedules(data)
+                return
+
+    def _defer_job(self, job: dict) -> None:
+        """Push a failed run back so the tick does not retry it every 30 seconds."""
+        retry_at = datetime.now(ZoneInfo(_valid_timezone_name(job.get("timezone")))) + RETRY_DELAY
+        self._store_job_run(job, next_run=retry_at.isoformat(timespec="seconds"))
+
     async def run_job_now(self, job_id: str) -> dict:
         job = self.get_job(job_id)
         if not job:
             raise KeyError(f"Job '{job_id}' not found")
         return await self._execute_job(job, force=True)
 
-    def _resolve_message(self, job: dict, contact: dict) -> str:
+    async def _resolve_message(self, job: dict, contact: dict) -> str:
         idea = job["idea"]
         config = self.engine.load_config()
         name = f"{contact.get('first_name', '')} {contact.get('last_name', '')}".strip() or "them"
         if job.get("use_ai") and config.get("openai_api_key"):
-            return generate_reminder_message(
+            return await asyncio.to_thread(
+                generate_reminder_message,
                 idea=idea,
                 contact_name=name,
                 api_key=config["openai_api_key"],
@@ -318,13 +366,17 @@ class JobScheduler:
         idx = job["contact_index"]
         if idx >= len(contacts):
             self._emit("error", f"Job '{job['name']}' — contact index {idx} out of range")
+            if not force:
+                self._defer_job(job)
             return {"ok": False, "error": "invalid_contact"}
 
         contact = contacts[idx]
         try:
-            message = self._resolve_message(job, contact)
+            message = await self._resolve_message(job, contact)
         except Exception as e:
             self._emit("error", f"Job '{job['name']}' — could not build message: {e}")
+            if not force:
+                self._defer_job(job)
             return {"ok": False, "error": str(e)}
 
         self._running_job_id = job["id"]
@@ -339,14 +391,15 @@ class JobScheduler:
                 follow_ups=False,
             )
             now = datetime.now(ZoneInfo(_valid_timezone_name(job.get("timezone"))))
-            job["last_run"] = now.isoformat(timespec="seconds")
-            job["next_run"] = compute_next_run(job, after=now).isoformat(timespec="seconds")
-            data = load_schedules()
-            for i, j in enumerate(data.get("jobs", [])):
-                if j["id"] == job["id"]:
-                    data["jobs"][i] = job
-                    break
-            save_schedules(data)
+            # Schedule from the stored copy: the job may have been edited during the send.
+            current = self.get_job(job["id"]) or job
+            current = {**current, "last_run": now.isoformat(timespec="seconds")}
+            if current.get("schedule_type") == "once":
+                update = {"last_run": current["last_run"], "enabled": False, "next_run": None}
+            else:
+                next_run = compute_next_run(current, after=now).isoformat(timespec="seconds")
+                update = {"last_run": current["last_run"], "next_run": next_run}
+            self._store_job_run(job, **update)
 
             ok = any(results.values())
             if ok:
@@ -356,6 +409,8 @@ class JobScheduler:
             return {"ok": ok, "results": results, "message": message}
         except Exception as e:
             self._emit("error", f"[Schedule] '{job['name']}' error: {e}")
+            if not force:
+                self._defer_job(job)
             return {"ok": False, "error": str(e)}
         finally:
             self._running_job_id = None

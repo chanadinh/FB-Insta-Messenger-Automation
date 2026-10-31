@@ -2,5 +2,7 @@ playwright==1.49.0
 Jinja2>=3.1.4
 openai>=1.60.0
 fastapi>=0.115.0
+python-multipart>=0.0.20
 uvicorn[standard]>=0.34.0
 websockets>=14.0
+Pillow>=11.0.0

@@ -15,7 +15,7 @@ def generate_follow_ups(
 
     Returns a list of follow-up messages (not including the first message).
     """
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=60)
 
     response = client.chat.completions.create(
         model=model,
@@ -54,7 +54,7 @@ def generate_reminder_message(
     tone: str = "friendly and casual",
 ) -> str:
     """Turn a short reminder idea into one natural chat message."""
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=60)
 
     response = client.chat.completions.create(
         model=model,
