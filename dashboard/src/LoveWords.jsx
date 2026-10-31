@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Illustrations";
+import { animateOut, burstHearts, gsap, revealNew, useGSAP } from "./motion";
 import { locales, translate } from "./translations";
 
 export default function LoveWords({ apiBase, language, suggestedThread }) {
@@ -17,6 +18,8 @@ export default function LoveWords({ apiBase, language, suggestedThread }) {
   const dirty = useRef(false);
   const working = useRef(false);
   const requestId = useRef(0);
+  const section = useRef(null);
+  const syncButton = useRef(null);
 
   async function request(path = "", options = {}) {
     const response = await fetch(`${apiBase}/api/love-words${path}`, {
@@ -76,12 +79,14 @@ export default function LoveWords({ apiBase, language, suggestedThread }) {
     act("sync", async () => {
       const next = await request("/sync", { method: "POST" });
       accept(next); setNotice({ key: next.added ? "loveAdded" : "loveNoNew", values: { count: next.added, scanned: next.scanned } });
+      if (next.added) burstHearts(syncButton.current);
     });
   }
 
-  function remove(id) {
+  function remove(id, card) {
     act(`remove:${id}`, async () => {
-      await request(`/${id}`, { method: "DELETE" });
+      await animateOut(card);
+      await request(`/${id}`, { method: "DELETE" }).catch((err) => { gsap.set(card, { clearProps: "all" }); throw err; });
       setData((current) => ({ ...current, notes: current.notes.filter((note) => note.id !== id) }));
     });
   }
@@ -91,8 +96,14 @@ export default function LoveWords({ apiBase, language, suggestedThread }) {
   const notes = (data?.notes || []).filter((note) => filter === "all" || note.language === filter || note.language === "mixed");
   const errorCode = error || data?.settings.last_error;
   const errorKey = `loveError_${errorCode}`;
+  const shownIds = notes.slice(0, visible).map((note) => note.id).join(",");
 
-  return <section id="love-words" className="card love-words" aria-labelledby="love-words-title">
+  // Saved words settle in like little cards being laid on a table.
+  useGSAP(() => {
+    revealNew(".love-word", { y: 30, rotation: () => gsap.utils.random(-5, 5), stagger: .07, ease: "back.out(1.6)" });
+  }, { scope: section, dependencies: [shownIds] });
+
+  return <section ref={section} id="love-words" className="card love-words reveal" aria-labelledby="love-words-title">
     <div className="card-heading"><div><p className="eyebrow">{t("loveEyebrow")}</p><h2 id="love-words-title">{t("loveTitle")} <span className="photo-count">{data?.notes.length || 0}</span></h2><p className="subtitle">{t("loveSubtitle")}</p></div><span className="heart-mark"><Icon name="heart" /></span></div>
     <form className="love-settings" onSubmit={save}>
       <label htmlFor="love-thread">{t("loveThreadLabel")}</label>
@@ -100,7 +111,7 @@ export default function LoveWords({ apiBase, language, suggestedThread }) {
       <p id="love-thread-help" className="private-note">{t("loveThreadHelp")}</p>
       {data?.settings.profile_name && <p className="private-note">{t("loveProfile", { profile: data.settings.profile_name })}</p>}
       <label className="love-auto"><input type="checkbox" checked={automatic} onChange={(event) => { dirty.current = true; setAutomatic(event.target.checked); }} disabled={busy || loading} /><span>{t("loveAutoLabel")}<small>{t("loveAutoHelp")}</small></span></label>
-      <div className="love-actions"><button className="button secondary" disabled={busy || loading || !thread.trim() || !needsSave}>{pending === "save" ? t("savingRecipient") : t("loveSaveSettings")}</button><button type="button" className="button primary" onClick={sync} disabled={busy || loading || needsSave || !data?.settings.thread_url}><Icon name="sparkle" width="16" height="16" />{pending === "sync" || data?.syncing ? t("loveSyncing") : t("loveSyncNow")}</button></div>
+      <div className="love-actions"><button className="button secondary" disabled={busy || loading || !thread.trim() || !needsSave}>{pending === "save" ? t("savingRecipient") : t("loveSaveSettings")}</button><button ref={syncButton} type="button" className="button primary" onClick={sync} disabled={busy || loading || needsSave || !data?.settings.thread_url}><Icon name="sparkle" width="16" height="16" />{pending === "sync" || data?.syncing ? t("loveSyncing") : t("loveSyncNow")}</button></div>
       {needsSave && <p className="private-note">{t("loveSaveFirst")}</p>}
     </form>
 
@@ -111,7 +122,7 @@ export default function LoveWords({ apiBase, language, suggestedThread }) {
     <div className="love-filter" role="group" aria-label={t("loveFilterLabel")}>{[["all", t("loveAll")], ["vi", "Tiếng Việt"], ["en", "English"]].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => { setFilter(value); setVisible(6); }}>{label}</button>)}</div>
     {loading ? <p className="subtitle" role="status">{t("loveLoading")}</p>
       : notes.length ? <div className="love-words-grid">{notes.slice(0, visible).map((note) => <article className="love-word" key={note.id}>
-        <div className="love-word-meta"><span>{note.language === "mixed" ? "VI + EN" : note.language.toUpperCase()}</span><button type="button" className="love-remove" aria-label={t("loveRemove")} disabled={busy} onClick={() => remove(note.id)}><Icon name="close" width="16" height="16" /></button></div>
+        <div className="love-word-meta"><span>{note.language === "mixed" ? "VI + EN" : note.language.toUpperCase()}</span><button type="button" className="love-remove" aria-label={t("loveRemove")} disabled={busy} onClick={(event) => remove(note.id, event.currentTarget.closest(".love-word"))}><Icon name="close" width="16" height="16" /></button></div>
         <blockquote lang={note.language === "mixed" ? undefined : note.language}>{note.body}</blockquote>
         <p>{t("loveSavedOn", { date: new Date(note.saved_at).toLocaleDateString(locales[language], { dateStyle: "medium" }) })}</p>
       </article>)}</div> : <div className="love-empty"><Icon name="heart" width="30" height="30" /><h3>{t("loveEmptyTitle")}</h3><p>{t(data?.settings.thread_url ? "loveEmptySynced" : "loveEmptyHelp")}</p><span>“Anh yêu em” · “love u” · “iu vk” · “nhớ ck”</span></div>}

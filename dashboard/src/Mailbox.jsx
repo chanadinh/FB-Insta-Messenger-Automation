@@ -104,7 +104,7 @@ export default function Mailbox() {
   const unread = incoming.filter((note) => !note.read_at).length;
   const notes = tab === "inbox" ? incoming : data.messages.filter((note) => note.sender === data.person.id);
   return <main className="shell mailbox-shell">
-    <header className="hero"><div><p className="eyebrow">Chỉ riêng hai đứa mình</p><h1>Hộp thư của đôi mình <span>♥</span></h1><p className="subtitle">Chào {displayName(data.person)}. Hôm nay mình gửi nhau chút yêu thương nhé.</p></div><button className="button secondary" disabled={busy || opening !== null} onClick={forget}>Quên thiết bị này</button></header>
+    <header className="hero"><div><p className="eyebrow">Chỉ riêng hai đứa mình</p><h1>Hộp thư của đôi mình <span className="hero-heart">♥</span></h1><p className="subtitle">Chào {displayName(data.person)}. Hôm nay mình gửi nhau chút yêu thương nhé.</p></div><button className="button secondary" disabled={busy || opening !== null} onClick={forget}>Quên thiết bị này</button></header>
     {error && <p className="notice error" role="alert">{error}</p>}
     {notice && <p className="notice success" role="status">{notice}</p>}
     <section className="welcome-card mailbox-welcome"><div className="welcome-copy"><p className="eyebrow">Gửi thương yêu mỗi ngày</p><h2>Lời nhắn nhỏ. <em>Yêu thương lớn.</em></h2><p>{unread ? `Có ${unread} lá thư chưa mở đang chờ mình nè.` : "Một lời chào buổi sáng, một lời cảm ơn, hay điều thương mến muốn nói ngay với nhau."}</p></div><EnvelopeIllustration /></section>
