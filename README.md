@@ -21,6 +21,20 @@ python server.py
 
 Open **http://127.0.0.1:8000** (or http://localhost:8000). The UI talks to the API and live logs over WebSockets.
 
+The dashboard requires an access token. Set `APP_AUTH_TOKEN` before starting the
+server, or read the automatically generated token from `.dashboard_token` under
+`APP_DATA_DIR` (the current directory by default). In Docker, retrieve it with
+`docker compose exec app cat /data/.dashboard_token`. Sign in at `/login`.
+API clients can send a bearer token in the `Authorization` header. Browser
+sessions use an HttpOnly cookie; changing the token invalidates existing sessions.
+
+Local startup and Docker port publishing bind to `127.0.0.1` by default. For
+remote Docker access, set `BIND_ADDRESS=0.0.0.0` and serve the dashboard through
+HTTPS. Keep the token file private and outside source control.
+
+Run regression tests with `pip install -r requirements-dev.txt` followed by
+`python -m unittest discover -s tests -v`.
+
 ### Separate React anniversary dashboard
 
 The focused anniversary dashboard lives in [`dashboard/`](dashboard/) and talks to the
@@ -99,6 +113,7 @@ Grid previews are generated as cached WebP images (up to 960 px) under
 `APP_DATA_DIR/gallery/.thumbnails`; opening a photo displays the original. Existing
 uploads get previews automatically. Local installations need the updated Python
 dependencies (`pip install -r requirements.txt`); Docker installs them on rebuild.
+
 
 ### 2. Browser profiles and login
 

@@ -14,9 +14,9 @@ from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -27,6 +27,7 @@ from fb_automation.engine import AutomationEngine, Status
 from fb_automation.browser import load_profiles, save_profiles, get_active_profile
 from fb_automation.logger import LOG_PATH, REPLIES_PATH, load_replies, update_reply_status
 from fb_automation.scheduler import JobScheduler, list_timezones, get_reminder_timezone_name
+from fb_automation.auth import COOKIE_NAME, authenticated, get_auth_token, session_value, valid_token
 from fb_automation.paths import data_path
 from fb_automation.gallery import image_metadata, thumbnail_path
 from fb_automation.love_words import LoveWordsService
@@ -44,6 +45,7 @@ MAX_GALLERY_IMAGE_BYTES = 10 * 1024 * 1024
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_auth_token()  # Create the local access token before accepting requests.
     scheduler.on_event(_on_schedule_event)
     await scheduler.start()
     love_task = asyncio.create_task(love_words.run())
@@ -136,6 +138,51 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def require_dashboard_access(request: Request, call_next):
+    path = request.url.path
+    protected = path == "/" or path.startswith("/api/") or path in ("/docs", "/redoc", "/openapi.json")
+    if protected and path != "/api/auth/login":
+        if not authenticated(request.headers, request.cookies):
+            if path == "/":
+                return RedirectResponse("/login", status_code=303)
+            return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("origin")
+        if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
+            return JSONResponse({"detail": "Invalid request origin"}, status_code=403)
+    response = await call_next(request)
+    if protected or path == "/login":
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+class LoginRequest(BaseModel):
+    token: str = Field(max_length=4096)
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    return FileResponse(STATIC_DIR / "login.html")
+
+
+@app.post("/api/auth/login")
+async def login(body: LoginRequest, request: Request):
+    if not valid_token(body.token):
+        return JSONResponse({"detail": "Invalid access token"}, status_code=401)
+    response = JSONResponse({"ok": True})
+    response.set_cookie(COOKIE_NAME, session_value(), httponly=True, samesite="strict",
+                        secure=request.url.scheme == "https", max_age=43200)
+    return response
+
+
+@app.post("/api/auth/logout")
+async def logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(COOKIE_NAME)
+    return response
 
 
 # ── WebSocket manager ─────────────────────────────────────────
@@ -329,7 +376,7 @@ async def update_config(update: ConfigUpdate):
     if config["follow_up_delay_min"] > config["follow_up_delay_max"]:
         return {"ok": False, "error": "Minimum follow-up delay cannot exceed maximum delay"}
     engine.save_config(config)
-    return {"ok": True, "config": _masked_config(config)}
+    return {"ok": True, "config": await get_config()}
 
 
 @app.get("/api/contacts")
@@ -652,6 +699,10 @@ async def run_schedule_now(job_id: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    expected_origin = f"{'https' if ws.url.scheme == 'wss' else 'http'}://{ws.url.netloc}"
+    if not authenticated(ws.headers, ws.cookies) or ws.headers.get("origin", expected_origin) != expected_origin:
+        await ws.close(code=1008)
+        return
     await ws_manager.connect(ws)
     try:
         await ws.send_json({"type": "init", "state": engine.get_state(), "logs": engine.state.logs})
@@ -671,4 +722,4 @@ app.mount("/gallery", StaticFiles(directory=str(GALLERY_DIR)), name="gallery")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("server:app", host="127.0.0.1", port=8000)

@@ -27,6 +27,8 @@ env/
 .idea/
 
 # Browser automation runtime data
+.dashboard_token
+reply_log.csv
 browser_profile/
 browser_profile*/
 cookies.json
