@@ -40,3 +40,15 @@ debug/
 
 # Generic logs
 *.log
+
+# Private shared mailbox data
+mailbox.sqlite3*
+
+# Frontend dependencies
+dashboard/node_modules/
+
+# Local Instagram love-word archive
+love_words.sqlite3*
+
+# Private dashboard access links
+dashboard_access.sqlite3*

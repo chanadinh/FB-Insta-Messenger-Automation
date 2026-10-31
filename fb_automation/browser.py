@@ -77,8 +77,23 @@ async def _is_fb_logged_in(page: Page) -> bool:
     try:
         await page.goto(FACEBOOK_URL, wait_until="domcontentloaded", timeout=30000)
         await page.wait_for_timeout(3000)
+        if any(marker in page.url.lower() for marker in ("/login", "/checkpoint", "/recover")):
+            return False
         login_form = await page.query_selector('form[action*="login"]')
-        return login_form is None
+        if login_form is not None:
+            return False
+
+        # A logged-in Facebook page exposes at least one account/navigation control.
+        for selector in (
+            '[aria-label*="Account"]',
+            '[aria-label*="profile" i]',
+            'a[href="/me/"]',
+            '[role="navigation"]',
+        ):
+            element = await page.query_selector(selector)
+            if element and await element.is_visible():
+                return True
+        return False
     except Exception:
         return False
 

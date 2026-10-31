@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import csv
+import re
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from fb_automation.paths import data_path
 
+PREVIEW_LIMIT = 80
+_LOG_TAGS = re.compile(r"^\s*(?:\[(?:IG|FB|reply|follow-up \d+)\]\s*)+")
 LOG_PATH = data_path("message_log.csv")
 REPLIES_PATH = data_path("reply_log.csv")
 _FIELDNAMES = ["timestamp", "first_name", "last_name", "profile_url", "status", "message_preview"]
@@ -64,9 +68,32 @@ def log_message(
                 "last_name": contact.get("last_name", ""),
                 "profile_url": contact.get("profile_url", ""),
                 "status": status,
-                "message_preview": message_preview[:80],
+                "message_preview": message_preview[:PREVIEW_LIMIT],
             }
         )
+
+
+def normalize_message_text(text: str) -> str:
+    """Drop log tags such as "[IG] [follow-up 2]" and fold case/whitespace."""
+    return " ".join(_LOG_TAGS.sub("", text).lower().split())
+
+
+def sent_message_matcher(sent_previews: list[str]) -> Callable[[str], bool]:
+    """Return a predicate telling whether visible thread text is one of our sends.
+
+    Logged previews are cut at PREVIEW_LIMIT characters, so a cut preview
+    matches any longer text that starts with it.
+    """
+    previews = [
+        (normalize_message_text(raw), len(raw) >= PREVIEW_LIMIT)
+        for raw in sent_previews if raw
+    ]
+
+    def is_sent(text: str) -> bool:
+        norm = normalize_message_text(text)
+        return any(norm == sent or (cut and sent and norm.startswith(sent)) for sent, cut in previews)
+
+    return is_sent
 
 
 def load_message_log() -> list[dict[str, str]]:

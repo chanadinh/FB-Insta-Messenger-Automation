@@ -8,11 +8,15 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from random import uniform
 from typing import Callable
 
-from fb_automation.browser import launch_browser, close_browser, CookieAuthError, get_active_profile, is_browser_busy
+from fb_automation.browser import (
+    launch_browser, close_browser, CookieAuthError, get_active_profile,
+    is_browser_busy, check_session_status, setup_login,
+)
 from fb_automation.messenger import send_message, send_follow_up, delay_between_messages, collect_fb_replies
-from fb_automation.instagram import send_ig_message, send_ig_follow_up, collect_ig_replies
+from fb_automation.instagram import send_ig_message, send_ig_follow_up, collect_ig_replies, collect_ig_love_words
 from fb_automation.templates import render_message
 from fb_automation.chatgen import generate_follow_ups
 from fb_automation.logger import log_message, load_message_log, log_reply
@@ -26,6 +30,7 @@ DEFAULT_CONFIG = {
     "message_template": "Hey {{first_name}}, just wanted to reach out!",
     "min_delay_seconds": 30,
     "max_delay_seconds": 90,
+    "max_concurrent_contacts": 2,
     "headless": True,
     "dry_run": False,
     "openai_api_key": "",
@@ -70,6 +75,19 @@ class AutomationEngine:
 
     def is_busy(self) -> bool:
         return self._busy_lock.locked() or is_browser_busy()
+
+    async def check_session(self, profile_name: str) -> dict:
+        """Check logins without restarting a browser another task is using."""
+        if self.is_busy():
+            return {"fb": None, "ig": None, "reason": "Browser automation is running; session check skipped."}
+        async with self._busy_lock:
+            return await check_session_status(profile_name)
+
+    async def setup_login(self, platform: str, profile_name: str) -> None:
+        if self.is_busy():
+            raise RuntimeError("Browser automation is busy")
+        async with self._busy_lock:
+            await setup_login(platform=platform, profile_name=profile_name)
 
     def on_log(self, callback: LogCallback) -> None:
         self._log_callbacks.append(callback)
@@ -251,6 +269,29 @@ class AutomationEngine:
 
         return results
 
+    async def collect_love_words(self, thread_url: str, *, profile_name: str | None = None) -> list[str]:
+        """Read recent message text from one chat without composing or sending."""
+        from fb_automation.love_words import LoveWordsError
+
+        if self.is_busy():
+            raise LoveWordsError("busy")
+        async with self._busy_lock:
+            previous_status = self.state.status
+            self.state.status = Status.RUNNING
+            context = None
+            try:
+                context, _ = await launch_browser(
+                    headless=True, need_fb=False, need_ig=True, profile_name=profile_name,
+                )
+                page = await context.new_page()
+                return await collect_ig_love_words(page, thread_url)
+            finally:
+                try:
+                    if context:
+                        await close_browser(context)
+                finally:
+                    self.state.status = previous_status
+
     async def collect_replies(
         self,
         contacts: list[dict[str, str]] | None = None,
@@ -287,6 +328,7 @@ class AutomationEngine:
             self._emit("info", f"Collecting replies from {len(targets)} thread(s)...")
             context = None
             collected: list[dict[str, str]] = []
+            failed = 0
             try:
                 context, _ = await launch_browser(
                     headless=headless,
@@ -318,6 +360,7 @@ class AutomationEngine:
                                 })
                         self._emit("ok" if new_count else "info", f"[{tag}] {name}: {new_count} new repl{'y' if new_count == 1 else 'ies'}")
                     except Exception as e:
+                        failed += 1
                         self._emit("error", f"[{tag}] Reply collection failed for {name}: {e}")
                     finally:
                         await page.close()
@@ -326,7 +369,16 @@ class AutomationEngine:
                     await close_browser(context)
                 self.state.status = prev_status if prev_status != Status.RUNNING else Status.IDLE
 
-        return {"ok": True, "checked": len(targets), "collected": len(collected), "replies": collected}
+        result = {
+            "ok": failed == 0,
+            "checked": len(targets),
+            "failed": failed,
+            "collected": len(collected),
+            "replies": collected,
+        }
+        if failed:
+            result["error"] = f"{failed} thread(s) failed during reply collection"
+        return result
 
     async def send_reply_to_thread(
         self,
@@ -414,6 +466,15 @@ class AutomationEngine:
 
     # ── Main loop (parallel) ─────────────────────────────────────
 
+    async def _wait_or_stop(self, seconds: float) -> bool:
+        if seconds <= 0:
+            return self._stop_event.is_set()
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
     async def _run_locked(self, contacts: list[dict[str, str]]) -> None:
         config = self.load_config()
         template = config["message_template"]
@@ -431,6 +492,7 @@ class AutomationEngine:
         self._emit("info", "Mode: 2 tabs per contact (Facebook + Instagram)")
 
         context = None
+        tasks: list[asyncio.Task] = []
         try:
             if not dry_run:
                 profile = get_active_profile()
@@ -443,13 +505,30 @@ class AutomationEngine:
             else:
                 context = None
 
-            tasks = []
+            limit = max(1, min(10, int(config.get("max_concurrent_contacts", 2))))
+            slots = asyncio.Semaphore(limit)
+
+            async def process(index, contact):
+                try:
+                    await self._process_contact(
+                        index, contact, context, template, dry_run,
+                        api_key, openai_model, follow_up_count,
+                        fu_delay_min, fu_delay_max, chat_tone,
+                    )
+                finally:
+                    slots.release()
+
             for i, contact in enumerate(contacts, 1):
-                tasks.append(self._process_contact(
-                    i, contact, context, template, dry_run,
-                    api_key, openai_model, follow_up_count,
-                    fu_delay_min, fu_delay_max, chat_tone,
-                ))
+                if self._stop_event.is_set():
+                    break
+                if i > 1 and not dry_run:
+                    if await self._wait_or_stop(uniform(config["min_delay_seconds"], config["max_delay_seconds"])):
+                        break
+                await slots.acquire()
+                if self._stop_event.is_set():
+                    slots.release()
+                    break
+                tasks.append(asyncio.create_task(process(i, contact)))
 
             await asyncio.gather(*tasks)
 
@@ -460,6 +539,11 @@ class AutomationEngine:
             self.state.error = str(e)
             self._emit("error", f"Unexpected error: {e}")
         finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
             if context:
                 await close_browser(context)
             if self.state.status != Status.ERROR:
@@ -553,6 +637,8 @@ class AutomationEngine:
         success = False
 
         try:
+            if self._stop_event.is_set():
+                return False
             self._emit("info", f"[{tag}] Sending to {name}...")
 
             emit = lambda level, msg: self._emit(level, msg)
@@ -570,7 +656,8 @@ class AutomationEngine:
                 if api_key and follow_up_count > 0:
                     self._emit("info", f"[{tag}] Generating {follow_up_count} follow-ups for {name}...")
                     try:
-                        follow_ups = generate_follow_ups(
+                        follow_ups = await asyncio.to_thread(
+                            generate_follow_ups,
                             message, name, api_key,
                             model=openai_model,
                             num_messages=follow_up_count,
@@ -583,7 +670,8 @@ class AutomationEngine:
                     for j, fu in enumerate(follow_ups, 1):
                         if self._stop_event.is_set():
                             break
-                        await delay_between_messages(fu_delay_min, fu_delay_max)
+                        if await self._wait_or_stop(uniform(fu_delay_min, fu_delay_max)):
+                            break
                         self._emit("info", f"[{tag}] Follow-up {j}/{len(follow_ups)} to {name}")
                         if platform == "instagram":
                             fu_ok = await send_ig_follow_up(page, fu, emit=emit)
